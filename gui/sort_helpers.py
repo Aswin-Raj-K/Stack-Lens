@@ -18,6 +18,8 @@ we handle the fallback ourselves via ``text()``.
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from .theme import THEME
+
 
 # Dedicated role for the numeric sort key — independent of Display/Edit.
 SORT_KEY_ROLE = QtCore.Qt.ItemDataRole.UserRole + 100
@@ -76,9 +78,7 @@ class SortableHeader(QtWidgets.QHeaderView):
     _CX_FROM_RIGHT = 14   # distance from section right edge to chevron centre-x
     _HALF_W = 4            # half-width  of the ∧/∨ chevron (px)
     _HALF_H = 3            # half-height of the ∧/∨ chevron (px)
-    _ARROW_COLOR  = QtGui.QColor("#a0a0bc")
-    _TEXT_NORMAL  = QtGui.QColor("#e0e0e0")
-    _TEXT_HOVER   = QtGui.QColor("#ffffff")
+    # Colors are read from THEME at paint time so theme switches take effect.
 
     def __init__(self, parent=None, no_sort_cols=()):
         super().__init__(QtCore.Qt.Orientation.Horizontal, parent)
@@ -185,7 +185,8 @@ class SortableHeader(QtWidgets.QHeaderView):
         painter.setClipRect(rect)
         painter.setFont(draw_font)
         is_hover = bool(opt.state & QtWidgets.QStyle.StateFlag.State_MouseOver)
-        painter.setPen(self._TEXT_HOVER if is_hover else self._TEXT_NORMAL)
+        text_color = THEME["header_hover_text"] if is_hover else THEME["text_primary"]
+        painter.setPen(QtGui.QColor(text_color))
         fm = QtGui.QFontMetrics(draw_font)
         elided = fm.elidedText(
             opt.text, QtCore.Qt.TextElideMode.ElideRight, label_rect.width()
@@ -220,7 +221,7 @@ class SortableHeader(QtWidgets.QHeaderView):
                    QtCore.QPointF(cx,       cy + hh),
                    QtCore.QPointF(cx + hw,  cy - hh)]
 
-        pen = QtGui.QPen(self._ARROW_COLOR, 1.5)
+        pen = QtGui.QPen(QtGui.QColor(THEME["text_secondary"]), 1.5)
         pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin)
         painter.save()

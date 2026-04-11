@@ -212,29 +212,33 @@ def build_call_tree(spans):
 
     # First pass: compute each span's exclusive time
     # (= duration minus sum of directly-contained child durations).
-    # Using a stack of "currently open" spans: when a new span starts while an
-    # older span is still open, the new one is a direct child of the open one.
+    # Only count a span as a child of the open span when both share the same
+    # ipsr context — an ISR preempts a thread function, it does not call it,
+    # so the ISR's duration must not be deducted from the thread's exclusive time.
     children_total = [0.0] * len(spans_sorted)
-    sp_to_idx = {id(sp): i for i, sp in enumerate(spans_sorted)}
 
-    open_stack = []  # stack of indices
+    open_stacks_excl: dict = {}   # ipsr → list of span indices
     for i, sp in enumerate(spans_sorted):
-        while open_stack and spans_sorted[open_stack[-1]]["end_us"] <= sp["start_us"]:
-            open_stack.pop()
-        if open_stack:
-            parent_i = open_stack[-1]
-            children_total[parent_i] += sp["duration_us"]
-        open_stack.append(i)
+        ipsr = sp.get("ipsr", 0)
+        stk = open_stacks_excl.setdefault(ipsr, [])
+        while stk and spans_sorted[stk[-1]]["end_us"] <= sp["start_us"]:
+            stk.pop()
+        if stk:
+            children_total[stk[-1]] += sp["duration_us"]
+        stk.append(i)
 
     # Second pass: build the aggregated tree.
-    # Use a stack of (end_us, tree_node) so we know which aggregated node is
-    # the current parent.
-    node_stack = [(float("inf"), root)]
+    # Use one node-stack per ipsr context so ISR spans never inherit a thread
+    # function as their parent (and vice-versa).  Each context's stack is
+    # independent and starts from the shared root node.
+    node_stacks: dict = {}   # ipsr → list of (end_us, tree_node)
     for i, sp in enumerate(spans_sorted):
-        while node_stack[-1][0] <= sp["start_us"]:
-            node_stack.pop()
+        ipsr = sp.get("ipsr", 0)
+        stk = node_stacks.setdefault(ipsr, [(float("inf"), root)])
+        while len(stk) > 1 and stk[-1][0] <= sp["start_us"]:
+            stk.pop()
 
-        _, parent_node = node_stack[-1]
+        _, parent_node = stk[-1]
         name = sp["name"]
         node = parent_node["children"].get(name)
         if node is None:
@@ -251,7 +255,7 @@ def build_call_tree(spans):
         node["inclusive_us"] += sp["duration_us"]
         node["exclusive_us"] += sp["duration_us"] - children_total[i]
 
-        node_stack.append((sp["end_us"], node))
+        stk.append((sp["end_us"], node))
 
     return root
 

@@ -3,6 +3,7 @@
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from .constants import VIRIDIS
+from .theme import THEME
 
 
 class ColorBarWidget(QtWidgets.QWidget):
@@ -35,10 +36,10 @@ class ColorBarWidget(QtWidgets.QWidget):
         p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
 
         # Background
-        p.fillRect(self.rect(), QtGui.QColor("#22222c"))
+        p.fillRect(self.rect(), QtGui.QColor(THEME["bg_raised"]))
 
         if self._d_max_us <= 0 or self._d_min_us < 0:
-            p.setPen(QtGui.QColor("#aaa"))
+            p.setPen(QtGui.QColor(THEME["text_disabled"]))
             p.drawText(self.rect(), QtCore.Qt.AlignmentFlag.AlignCenter, "No duration data")
             return
 
@@ -68,14 +69,14 @@ class ColorBarWidget(QtWidgets.QWidget):
         p.fillRect(grad_rect, grad)
 
         # Thin outline
-        pen = QtGui.QPen(QtGui.QColor("#3a3a4a"))
+        pen = QtGui.QPen(QtGui.QColor(THEME["border_normal"]))
         pen.setWidth(1)
         p.setPen(pen)
         p.setBrush(QtCore.Qt.BrushStyle.NoBrush)
         p.drawRect(grad_rect)
 
         # Side labels
-        p.setPen(QtGui.QColor("#e0e0e0"))
+        p.setPen(QtGui.QColor(THEME["text_primary"]))
         p.drawText(
             QtCore.QRectF(0, 0, label_min_w - 6, h),
             QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter,
@@ -89,7 +90,7 @@ class ColorBarWidget(QtWidgets.QWidget):
 
         # Title overlaid on gradient if there's room
         if grad_w > title_w + 40:
-            p.setPen(QtGui.QColor("#ffffff"))
+            p.setPen(QtGui.QColor(THEME["text_white"]))
             p.drawText(
                 grad_rect,
                 QtCore.Qt.AlignmentFlag.AlignCenter,

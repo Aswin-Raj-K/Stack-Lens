@@ -6,6 +6,8 @@ shortcut in a grid. Dismissed by any key press or mouse click.
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from .theme import FONT_MONO, THEME
+
 
 # Single source of truth for what's shown. Keep in sync with the actions
 # registered in ProfilerWindow._build_menu / _install_pan_zoom_shortcuts.
@@ -60,34 +62,35 @@ class ShortcutOverlay(QtWidgets.QWidget):
 
         self._panel = QtWidgets.QFrame(self)
         self._panel.setObjectName("ShortcutPanel")
+        T = THEME
         self._panel.setStyleSheet(
-            "QFrame#ShortcutPanel {"
-            "  background: rgba(26, 26, 38, 252);"
-            "  border: 1px solid #505068;"
-            "  border-radius: 8px;"
-            "}"
-            "QLabel { color: #c8c8e0; background: transparent; }"
-            "QLabel#ShortcutTitle {"
-            "  font-size: 13pt; font-weight: bold; color: #ffffff;"
-            "}"
-            "QLabel#SectionHeader {"
-            "  font-weight: bold; color: #80b8f8;"
-            "  padding: 2px 0px;"
-            "}"
+            f"QFrame#ShortcutPanel {{"
+            f"  background: rgba(26, 26, 38, 252);"
+            f"  border: 1px solid {T['border_input']};"
+            f"  border-radius: 8px;"
+            f"}}"
+            f"QLabel {{ color: #c8c8e0; background: transparent; }}"
+            f"QLabel#ShortcutTitle {{"
+            f"  font-size: 13pt; font-weight: bold; color: {T['text_white']};"
+            f"}}"
+            f"QLabel#SectionHeader {{"
+            f"  font-weight: bold; color: {T['accent_checked_text']};"
+            f"  padding: 2px 0px;"
+            f"}}"
             # Key chip: monospace badge matching the DockCtrlPanel look
-            "QLabel#KeyLabel {"
-            "  font-family: Consolas, 'Courier New', monospace;"
-            "  color: #e0e0ff; background: #252535;"
-            "  border: 1px solid #3a3a52; border-radius: 3px;"
-            "  padding: 1px 6px;"
-            "}"
-            "QLabel#DescLabel { color: #9898b8; }"
-            "QLabel#HintLabel  { color: #606080; }"
+            f"QLabel#KeyLabel {{"
+            f"  font-family: {FONT_MONO};"
+            f"  color: {T['text_primary']}; background: {T['bg_ctrl_panel']};"
+            f"  border: 1px solid {T['interactive_ctrl_hover']}; border-radius: 3px;"
+            f"  padding: 1px 6px;"
+            f"}}"
+            f"QLabel#DescLabel {{ color: #9898b8; }}"
+            f"QLabel#HintLabel  {{ color: #606080; }}"
             # Thin horizontal rule between sections
-            "QFrame#SectionSep {"
-            "  color: #353548; border: none; border-top: 1px solid #353548;"
-            "  max-height: 1px;"
-            "}"
+            f"QFrame#SectionSep {{"
+            f"  color: {T['interactive_hover']}; border: none; border-top: 1px solid {T['interactive_hover']};"
+            f"  max-height: 1px;"
+            f"}}"
         )
 
         grid = QtWidgets.QGridLayout(self._panel)

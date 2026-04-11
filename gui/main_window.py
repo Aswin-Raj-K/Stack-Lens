@@ -1,5 +1,6 @@
 """Main profiler window — flame chart, scrolling, menus, all features."""
 
+import json
 import os
 import pathlib
 import sys
@@ -13,15 +14,22 @@ from trace_io import export_csv, export_json
 
 from trace_io import import_json
 
+from .call_graph_dock import CallGraphDock
 from .call_tree_dock import CallTreeDock
 from .color_bar import ColorBarWidget
-from .constants import COLORS, DARK_STYLESHEET, DEFAULT_WINDOW_US, ROW_HEIGHT
+from .constants import COLORS, DEFAULT_WINDOW_US, ROW_HEIGHT, build_dark_stylesheet, build_stylesheet
+from .theme import (
+    THEME, THEMES, CANVAS_DIM_RGBA, Z_PICK, Z_SELECTION, Z_HIGHLIGHT,
+    SELECTION_FILL_ALPHA, configure_pyqtgraph, spinbox_qss, _ICONS,
+    apply_theme,
+)
 from .dock_title_bar import DockTitleBar
 from .flame_item import FlameItem
 from .jitter_dialog import JitterDialog
 from .marker_dock import MarkerDock
 from .minimap_widget import MinimapWidget
 from .ribbon_dock import RibbonDock
+from .settings_dialog import SettingsDialog
 from .shortcut_overlay import ShortcutOverlay
 from .summary_dock import SummaryDock
 from .top_n_dock import TopNSlowestDock
@@ -239,6 +247,11 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         # and some child widgets consume +/- too).
         self._install_pan_zoom_shortcuts()
 
+        # Restore theme preference from last session
+        saved_theme = self._load_settings().get("theme", "Dark")
+        if saved_theme in THEMES and saved_theme != "Dark":
+            self._on_theme_changed(saved_theme)
+
     def closeEvent(self, event):
         if self._jlink is not None:
             try:
@@ -307,7 +320,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
     # ── UI construction ──────────────────────────────────────────────
 
     def _build_ui(self):
-        self.setStyleSheet(DARK_STYLESHEET)
+        QtWidgets.QApplication.instance().setStyleSheet(build_dark_stylesheet())
 
         # Create the shortcut cheat-sheet overlay + its trigger action
         # BEFORE _build_menu so the Help menu entry can reference it.
@@ -345,13 +358,13 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         # Overflow banner (hidden unless the ring buffer wrapped)
         self.overflow_banner = QtWidgets.QLabel()
         self.overflow_banner.setStyleSheet(
-            "background:#6c1f1f; color:#ffeaea; padding:8px;"
+            f"background:{THEME['status_error_bg']}; color:#ffeaea; padding:8px;"
             "border-radius:4px; font-weight:bold;"
         )
         self.overflow_banner.setVisible(False)
         layout.addWidget(self.overflow_banner)
 
-        # Minimap strip — hidden by default (toggle via View → Show Minimap)
+        # Minimap strip — visible by default (toggle via View → Show Minimap)
         self.minimap = MinimapWidget(
             self.spans, self.marks, self.color_map, self.t_min, self.total_us,
             pause_regions=self.pause_regions,
@@ -360,12 +373,8 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self.minimap.setVisible(False)
         layout.addWidget(self.minimap)
 
-        pg.setConfigOptions(
-            antialias=False,
-            background="#181820",
-            foreground="#ffffff",
-            useOpenGL=False,
-        )
+        configure_pyqtgraph()
+        pg.setConfigOptions(antialias=False, useOpenGL=False)
 
         self.x_axis = UnitAxis(orientation="bottom")
         self.x_axis.enableAutoSIPrefix(False)
@@ -397,15 +406,15 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.plot_widget, 1)
 
         # Measurement cursors (two draggable vertical lines)
-        pen_a = pg.mkPen("#ff8800", width=2, style=QtCore.Qt.PenStyle.DashLine)
-        pen_b = pg.mkPen("#00ddff", width=2, style=QtCore.Qt.PenStyle.DashLine)
+        pen_a = pg.mkPen(THEME["pick_a"], width=2, style=QtCore.Qt.PenStyle.DashLine)
+        pen_b = pg.mkPen(THEME["pick_b"], width=2, style=QtCore.Qt.PenStyle.DashLine)
         self.cursor_a = pg.InfiniteLine(
             pos=0, angle=90, movable=True, pen=pen_a,
-            label="A", labelOpts={"position": 0.95, "color": "#ff8800"},
+            label="A", labelOpts={"position": 0.95, "color": THEME["pick_a"]},
         )
         self.cursor_b = pg.InfiniteLine(
             pos=0, angle=90, movable=True, pen=pen_b,
-            label="B", labelOpts={"position": 0.95, "color": "#00ddff"},
+            label="B", labelOpts={"position": 0.95, "color": THEME["pick_b"]},
         )
         self.cursor_a.sigPositionChanged.connect(self._on_cursors_moved)
         self.cursor_b.sigPositionChanged.connect(self._on_cursors_moved)
@@ -424,14 +433,16 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         # Hover details bar
         self.hover_label = QtWidgets.QLabel("Hover over a bar to see details")
         self.hover_label.setStyleSheet(
-            "background:#22222c; color:#ddd; padding:6px; border-radius:4px;"
+            f"background:{THEME['bg_raised']}; color:{THEME['text_primary']};"
+            "padding:6px; border-radius:4px;"
         )
         layout.addWidget(self.hover_label)
 
         # Cursor measurement bar
         self.measure_label = QtWidgets.QLabel()
         self.measure_label.setStyleSheet(
-            "background:#2a2a36; color:#fff; padding:6px; border-radius:4px; font-weight:bold;"
+            f"background:{THEME['bg_elevated']}; color:{THEME['text_white']};"
+            "padding:6px; border-radius:4px; font-weight:bold;"
         )
         self.measure_label.setVisible(False)
         layout.addWidget(self.measure_label)
@@ -439,7 +450,8 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         # Pick-spans measurement bar (shows A→B delta when user picks two spans)
         self.pick_label = QtWidgets.QLabel()
         self.pick_label.setStyleSheet(
-            "background:#2a2a36; color:#fff; padding:6px; border-radius:4px;"
+            f"background:{THEME['bg_elevated']}; color:{THEME['text_white']};"
+            "padding:6px; border-radius:4px;"
         )
         self.pick_label.setVisible(False)
         layout.addWidget(self.pick_label)
@@ -449,7 +461,12 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self.color_bar.setVisible(False)
         layout.addWidget(self.color_bar)
 
-        # Status bar
+        # Status bar — persistent mode badge on the right side
+        self._mode_label = QtWidgets.QLabel("")
+        self._mode_label.setObjectName("ModeBadge")
+        self._mode_label.setVisible(False)
+        self.statusBar().addPermanentWidget(self._mode_label)
+        self.statusBar().setSizeGripEnabled(False)
         self._update_status_bar()
 
         # Summary dock (bottom)
@@ -467,6 +484,13 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self.call_tree_dock.function_clicked.connect(self._jump_to_function_name)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.call_tree_dock)
         self.tabifyDockWidget(self.summary_dock, self.call_tree_dock)
+
+        # Call-graph dock (bottom, tabbed with call tree)
+        self.call_graph_dock = CallGraphDock(self.spans, self.color_map, self)
+        self.call_graph_dock.setTitleBarWidget(DockTitleBar(self.call_graph_dock))
+        self.call_graph_dock.function_clicked.connect(self._jump_to_function_name)
+        self.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.call_graph_dock)
+        self.tabifyDockWidget(self.call_tree_dock, self.call_graph_dock)
 
         # Markers dock (bottom, tabbed with summary + call tree)
         self.marker_dock = MarkerDock(self.marks, self)
@@ -503,6 +527,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self.call_tree_dock.set_unit(self.unit_label, self.unit_scale)
         self.marker_dock.set_unit(self.unit_label, self.unit_scale)
         self.top_n_dock.set_unit(self.unit_label, self.unit_scale)
+        self.call_graph_dock.set_unit(self.unit_label, self.unit_scale)
 
         # Now that the docks exist, populate the Panels submenu with their
         # toggle actions (they stay in sync with the dock's visibility state).
@@ -516,6 +541,97 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self._last_mouse_pos = None
         self.plot_widget.scene().sigMouseMoved.connect(self._on_mouse_moved)
         self.plot_widget.scene().sigMouseClicked.connect(self._on_plot_clicked)
+
+    # ── Settings ─────────────────────────────────────────────────────
+
+    _SETTINGS_FILE = pathlib.Path.home() / ".cortexm0_profiler.json"
+
+    def _load_settings(self) -> dict:
+        try:
+            return json.loads(self._SETTINGS_FILE.read_text())
+        except Exception:
+            return {}
+
+    def _save_settings(self, updates: dict) -> None:
+        data = self._load_settings()
+        data.update(updates)
+        try:
+            self._SETTINGS_FILE.write_text(json.dumps(data, indent=2))
+        except Exception:
+            pass
+
+    def _open_settings(self):
+        import gui.theme as _theme_mod
+        dlg = SettingsDialog(current_theme=_theme_mod.CURRENT_THEME_NAME, parent=self)
+        dlg.theme_changed.connect(self._on_theme_changed)
+        dlg.exec()
+
+    def _on_theme_changed(self, name: str) -> None:
+        """Switch to the named theme and reapply all styled widgets."""
+        apply_theme(name)
+
+        # 1. Global QSS — set on QApplication so it reaches QDockWidgetGroupWindow
+        # (tabified docks) which can be a separate top-level window not parented
+        # under QMainWindow, and would miss a self.setStyleSheet() cascade.
+        QtWidgets.QApplication.instance().setStyleSheet(build_stylesheet())
+
+        # 2. Per-widget stylesheets that were set individually at build time
+        self.window_spin.setStyleSheet(spinbox_qss("QDoubleSpinBox"))
+        self.jump_spin.setStyleSheet(spinbox_qss("QDoubleSpinBox"))
+
+        _cd = (_ICONS / "chevron_dn.svg").as_posix()
+        self.search_combo.setStyleSheet(
+            f"QComboBox::drop-down {{"
+            f"  subcontrol-origin: border; subcontrol-position: right center;"
+            f"  width: 18px; background: {THEME['bg_raised']};"
+            f"  border-left: 1px solid {THEME['border_normal']}; border-radius: 0px 3px 3px 0px; }}"
+            f"QComboBox::drop-down:hover {{ background: {THEME['interactive_hover_btn']}; }}"
+            f"QComboBox::down-arrow {{ image: url({_cd}); width: 7px; height: 5px; }}"
+        )
+
+        # Inline-styled labels
+        self.hover_label.setStyleSheet(
+            f"background:{THEME['bg_raised']}; color:{THEME['text_primary']};"
+            "padding:6px; border-radius:4px;"
+        )
+        self.measure_label.setStyleSheet(
+            f"background:{THEME['bg_elevated']}; color:{THEME['text_white']};"
+            "padding:6px; border-radius:4px; font-weight:bold;"
+        )
+        self.pick_label.setStyleSheet(
+            f"background:{THEME['bg_elevated']}; color:{THEME['text_white']};"
+            "padding:6px; border-radius:4px;"
+        )
+
+        # 3. pyqtgraph main plot — background + axis colors
+        configure_pyqtgraph()
+        if hasattr(self, "plot_widget"):
+            self.plot_widget.setBackground(THEME["bg_base"])
+        if hasattr(self, "plot"):
+            axis_pen = pg.mkPen(THEME["text_primary"])
+            for axis_name in ("bottom", "left", "right", "top"):
+                ax = self.plot.getAxis(axis_name)
+                if ax is not None:
+                    ax.setPen(axis_pen)
+                    ax.setTextPen(axis_pen)
+
+        # 4. Repaint custom-painted widgets
+        if hasattr(self, "minimap"):
+            self.minimap._invalidate_cache()
+            self.minimap.update()
+        if hasattr(self, "color_bar"):
+            self.color_bar.update()
+        if hasattr(self, "_flame_item") and self._flame_item is not None:
+            self._flame_item.update()
+
+        # 5. Docks with individually-styled widgets
+        if hasattr(self, "top_n_dock"):
+            self.top_n_dock.refresh_theme()
+        if hasattr(self, "call_graph_dock"):
+            self.call_graph_dock.refresh_theme()
+
+        # 6. Persist
+        self._save_settings({"theme": name})
 
     def _build_menu(self):
         menubar = self.menuBar()
@@ -600,7 +716,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
 
         view_menu.addSeparator()
 
-        # Minimap toggle (off by default)
+        # Minimap toggle (on by default)
         self.act_minimap = QtGui.QAction("Show Minimap", self, checkable=True)
         self.act_minimap.setChecked(False)
         self.act_minimap.setShortcut("Ctrl+Shift+M")
@@ -626,7 +742,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         view_menu.addAction(self.act_bar_labels)
 
         self.act_sticky_hover = QtGui.QAction("Sticky Hover Label", self, checkable=True)
-        self.act_sticky_hover.setChecked(False)  # OFF by default
+        self.act_sticky_hover.setChecked(True)   # ON by default
         self.act_sticky_hover.triggered.connect(self._toggle_sticky_hover)
         view_menu.addAction(self.act_sticky_hover)
 
@@ -680,6 +796,13 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         act_prev_occ.triggered.connect(self._iter_prev)
         nav_menu.addAction(act_prev_occ)
 
+        # ── Settings menu ──
+        settings_menu = menubar.addMenu("&Settings")
+        act_settings = QtGui.QAction("Preferences\u2026", self)
+        act_settings.setShortcut("Ctrl+,")
+        act_settings.triggered.connect(self._open_settings)
+        settings_menu.addAction(act_settings)
+
         # ── Help menu ──
         help_menu = menubar.addMenu("&Help")
         # Reuse the shortcut action created in __init__ (lives on self.*)
@@ -715,6 +838,11 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         top_n_action.setShortcut("Ctrl+Shift+O")
         self._panels_menu.addAction(top_n_action)
 
+        graph_action = self.call_graph_dock.toggleViewAction()
+        graph_action.setText("Call Graph")
+        graph_action.setShortcut("Ctrl+Shift+G")
+        self._panels_menu.addAction(graph_action)
+
     def _build_toolbar(self):
         tb = QtWidgets.QToolBar("Main")
         tb.setMovable(False)
@@ -743,30 +871,8 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self.jump_spin.setKeyboardTracking(False)
         tb.addWidget(self.jump_spin)
 
-        # Per-widget stylesheet for spinbox step buttons — needs absolute SVG
-        # paths so it cannot live in the global DARK_STYLESHEET constant.
-        _icons = pathlib.Path(__file__).parent / "icons"
-        _cu = (_icons / "chevron_up.svg").as_posix()
-        _cd = (_icons / "chevron_dn.svg").as_posix()
-        _spinbox_qss = (
-            "QDoubleSpinBox::up-button {"
-            "  subcontrol-origin: border; subcontrol-position: right top;"
-            "  width: 18px; background: #22222c;"
-            "  border-left: 1px solid #3a3a4a; border-top-right-radius: 3px; }"
-            "QDoubleSpinBox::down-button {"
-            "  subcontrol-origin: border; subcontrol-position: right bottom;"
-            "  width: 18px; background: #22222c;"
-            "  border-left: 1px solid #3a3a4a; border-top: 1px solid #3a3a4a;"
-            "  border-bottom-right-radius: 3px; }"
-            "QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {"
-            "  background: #2e2e3e; }"
-            "QDoubleSpinBox::up-button:pressed, QDoubleSpinBox::down-button:pressed {"
-            "  background: #1a1a26; }"
-            f"QDoubleSpinBox::up-arrow {{ image: url({_cu}); width: 7px; height: 5px; }}"
-            f"QDoubleSpinBox::down-arrow {{ image: url({_cd}); width: 7px; height: 5px; }}"
-        )
-        self.window_spin.setStyleSheet(_spinbox_qss)
-        self.jump_spin.setStyleSheet(_spinbox_qss)
+        self.window_spin.setStyleSheet(spinbox_qss("QDoubleSpinBox"))
+        self.jump_spin.setStyleSheet(spinbox_qss("QDoubleSpinBox"))
 
         jump_btn = QtGui.QAction("Go", self)
         jump_btn.triggered.connect(self._jump_to_time)
@@ -789,15 +895,16 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             line_edit.returnPressed.connect(self._on_search_return_pressed)
         self.search_combo.activated.connect(self._on_search_activated)
         tb.addWidget(self.search_combo)
+        _cd = (_ICONS / "chevron_dn.svg").as_posix()
         self.search_combo.setStyleSheet(
             # subcontrol-origin: border positions the drop-down at the widget's
             # right edge; Qt automatically constrains the inner QLineEdit to the
             # space left of the button — no extra padding-right needed.
-            "QComboBox::drop-down {"
-            "  subcontrol-origin: border; subcontrol-position: right center;"
-            "  width: 18px; background: #22222c;"
-            "  border-left: 1px solid #3a3a4a; border-radius: 0px 3px 3px 0px; }"
-            "QComboBox::drop-down:hover { background: #2e2e3e; }"
+            f"QComboBox::drop-down {{"
+            f"  subcontrol-origin: border; subcontrol-position: right center;"
+            f"  width: 18px; background: {THEME['bg_raised']};"
+            f"  border-left: 1px solid {THEME['border_normal']}; border-radius: 0px 3px 3px 0px; }}"
+            f"QComboBox::drop-down:hover {{ background: {THEME['interactive_hover_btn']}; }}"
             f"QComboBox::down-arrow {{ image: url({_cd}); width: 7px; height: 5px; }}"
         )
 
@@ -816,24 +923,24 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         _popup = self._search_completer.popup()
         if _popup is not None:
             _popup.setStyleSheet(
-                "QListView {"
-                "  background: #22222c;"
-                "  color: #e0e0e0;"
-                "  border: 1px solid #3a3a4a;"
-                "  outline: 0;"
-                "  padding: 2px;"
-                "}"
-                "QListView::item {"
-                "  padding: 5px 10px;"
-                "  min-height: 20px;"
-                "}"
-                "QListView::item:selected {"
-                "  background: #3d3d52;"
-                "  color: #ffffff;"
-                "}"
-                "QListView::item:hover {"
-                "  background: #2a2a36;"
-                "}"
+                f"QListView {{"
+                f"  background: {THEME['bg_raised']};"
+                f"  color: {THEME['text_primary']};"
+                f"  border: 1px solid {THEME['border_normal']};"
+                f"  outline: 0;"
+                f"  padding: 2px;"
+                f"}}"
+                f"QListView::item {{"
+                f"  padding: 5px 10px;"
+                f"  min-height: 20px;"
+                f"}}"
+                f"QListView::item:selected {{"
+                f"  background: {THEME['selection_bg']};"
+                f"  color: {THEME['text_white']};"
+                f"}}"
+                f"QListView::item:hover {{"
+                f"  background: {THEME['bg_elevated']};"
+                f"}}"
             )
 
         # "Next" button — advances to the next occurrence of the currently
@@ -1169,6 +1276,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         # Rebuild docks
         self.summary_dock.set_spans(self.spans, self.color_map)
         self.call_tree_dock.set_spans(self.spans, self.total_us, self.color_map)
+        self.call_graph_dock.set_spans(self.spans, self.color_map)
         self.marker_dock.set_marks(self.marks)
         self.marker_dock.set_unit(self.unit_label, self.unit_scale)
         self.top_n_dock.set_spans(self.spans, self.color_map)
@@ -1236,6 +1344,8 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             self.marker_dock.set_unit(unit, self.unit_scale)
         if hasattr(self, "top_n_dock") and self.top_n_dock is not None:
             self.top_n_dock.set_unit(unit, self.unit_scale)
+        if hasattr(self, "call_graph_dock") and self.call_graph_dock is not None:
+            self.call_graph_dock.set_unit(unit, self.unit_scale)
 
         self._update_status_bar()
         self._update_measure_label()
@@ -1463,6 +1573,11 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self.pick_label.setVisible(checked)
         if checked:
             self.pick_label.setText("Pick span A (click a bar)")
+            self._mode_label.setText("PICK SPANS")
+            self._mode_label.setVisible(True)
+        else:
+            self._mode_label.setText("")
+            self._mode_label.setVisible(False)
 
     # ── Zoom to Selection (drag-to-zoom) ─────────────────────────────
 
@@ -1473,10 +1588,14 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             self.statusBar().showMessage(
                 "Drag horizontally on the chart, release to zoom. Esc to cancel."
             )
+            self._mode_label.setText("SELECT-ZOOM")
+            self._mode_label.setVisible(True)
         else:
             self.plot_widget.unsetCursor()
             self._cancel_select_overlay()
             self._update_status_bar()
+            self._mode_label.setText("")
+            self._mode_label.setVisible(False)
 
     def _plot_mouse_press(self, event):
         # Shift + Left-drag: mode-less region zoom (alternative to the
@@ -1493,10 +1612,10 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             self._select_overlay = pg.LinearRegionItem(
                 values=[vp, vp],
                 movable=False,
-                brush=(255, 200, 0, 60),
-                pen=pg.mkPen("#ffcc00", width=1),
+                brush=(255, 200, 0, SELECTION_FILL_ALPHA),
+                pen=pg.mkPen(THEME["selection"], width=1),
             )
-            self._select_overlay.setZValue(50)
+            self._select_overlay.setZValue(Z_SELECTION)
             self.plot.addItem(self._select_overlay)
             event.accept()
             return
@@ -1507,10 +1626,10 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             self._select_overlay = pg.LinearRegionItem(
                 values=[vp, vp],
                 movable=False,
-                brush=(255, 200, 0, 60),
-                pen=pg.mkPen("#ffcc00", width=1),
+                brush=(255, 200, 0, SELECTION_FILL_ALPHA),
+                pen=pg.mkPen(THEME["selection"], width=1),
             )
-            self._select_overlay.setZValue(50)
+            self._select_overlay.setZValue(Z_SELECTION)
             self.plot.addItem(self._select_overlay)
             self.plot_widget.setCursor(QtCore.Qt.CursorShape.CrossCursor)
             event.accept()
@@ -1698,7 +1817,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
 
     def _draw_pick_overlay(self, sp, which):
         """Add a translucent highlight rectangle over the picked span."""
-        border = QtGui.QColor("#ff8800") if which == "a" else QtGui.QColor("#00ddff")
+        border = QtGui.QColor(THEME["pick_a"] if which == "a" else THEME["pick_b"])
         fill = QtGui.QColor(border)
         fill.setAlpha(110)
 
@@ -1710,7 +1829,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         pen = QtGui.QPen(border)
         pen.setWidthF(0)
         rect.setPen(pen)
-        rect.setZValue(100)
+        rect.setZValue(Z_PICK)
         self.plot.addItem(rect)
         return rect
 
@@ -1907,14 +2026,14 @@ class ProfilerWindow(QtWidgets.QMainWindow):
 
         rect = QtWidgets.QGraphicsRectItem(x_rel, y, max(width, 1e-6), height)
         # Slight dark dim over the bar so the outline pops
-        fill = QtGui.QColor(0, 0, 0, 90)
+        fill = QtGui.QColor(*CANVAS_DIM_RGBA)
         rect.setBrush(QtGui.QBrush(fill))
 
-        pen = QtGui.QPen(QtGui.QColor("#ffffff"))
+        pen = QtGui.QPen(QtGui.QColor(THEME["text_white"]))
         pen.setWidth(3)
         pen.setCosmetic(True)  # 3 screen pixels regardless of zoom
         rect.setPen(pen)
-        rect.setZValue(200)
+        rect.setZValue(Z_HIGHLIGHT)
         self.plot.addItem(rect)
         self._iter_highlight_item = rect
 
@@ -1971,11 +2090,11 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self._clear_iter_highlight()
 
         line = QtWidgets.QGraphicsLineItem(x_rel, y_top, x_rel, y_bot)
-        pen = QtGui.QPen(QtGui.QColor("#ffffff"))
+        pen = QtGui.QPen(QtGui.QColor(THEME["text_white"]))
         pen.setWidth(4)
         pen.setCosmetic(True)
         line.setPen(pen)
-        line.setZValue(200)
+        line.setZValue(Z_HIGHLIGHT)
         self.plot.addItem(line)
         self._iter_highlight_item = line
 
@@ -2174,8 +2293,9 @@ class ProfilerWindow(QtWidgets.QMainWindow):
                 t_rel = mark["t_us"] - self.t_min
             t = t_rel * s
             ctx = f" (ISR {mark['ipsr']})" if mark.get("ipsr", 0) else ""
+            mark_color = THEME["status_mark"]
             self.hover_label.setText(
-                f"<b>MARK:</b> <span style='color:#00ddff'>{mark['name']}</span>"
+                f"<b>MARK:</b> <span style='color:{mark_color}'>{mark['name']}</span>"
                 f"  @ {t:.3f} {u}{ctx}"
             )
             return

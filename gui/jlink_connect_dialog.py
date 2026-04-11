@@ -1,10 +1,8 @@
 """Dialog for establishing a live J-Link connection from the GUI."""
 
-import pathlib
-
 from PySide6 import QtCore, QtWidgets
 
-_ICONS = pathlib.Path(__file__).parent / "icons"
+from .theme import dialog_base_qss, primary_button_qss, spinbox_qss
 
 
 class ConnectJLinkDialog(QtWidgets.QDialog):
@@ -15,11 +13,7 @@ class ConnectJLinkDialog(QtWidgets.QDialog):
         self.resize(520, 210)
 
         # Match toolbar visual style: muted labels, brighter input/button borders.
-        self.setStyleSheet(
-            "QLabel { color: #7878a0; }"
-            "QLineEdit, QDoubleSpinBox { border-color: #505068; }"
-            "QPushButton { border-color: #505068; }"
-        )
+        self.setStyleSheet(dialog_base_qss())
 
         layout = QtWidgets.QFormLayout(self)
         layout.setSpacing(14)
@@ -51,25 +45,7 @@ class ConnectJLinkDialog(QtWidgets.QDialog):
         self._mhz_spin.setDecimals(1)
         self._mhz_spin.setSuffix(" MHz")
         self._mhz_spin.setValue(cpu_mhz)
-        _cu = (_ICONS / "chevron_up.svg").as_posix()
-        _cd = (_ICONS / "chevron_dn.svg").as_posix()
-        self._mhz_spin.setStyleSheet(
-            "QDoubleSpinBox::up-button {"
-            "  subcontrol-origin: border; subcontrol-position: right top;"
-            "  width: 18px; background: #22222c;"
-            "  border-left: 1px solid #3a3a4a; border-top-right-radius: 3px; }"
-            "QDoubleSpinBox::down-button {"
-            "  subcontrol-origin: border; subcontrol-position: right bottom;"
-            "  width: 18px; background: #22222c;"
-            "  border-left: 1px solid #3a3a4a; border-top: 1px solid #3a3a4a;"
-            "  border-bottom-right-radius: 3px; }"
-            "QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {"
-            "  background: #2e2e3e; }"
-            "QDoubleSpinBox::up-button:pressed, QDoubleSpinBox::down-button:pressed {"
-            "  background: #1a1a26; }"
-            f"QDoubleSpinBox::up-arrow {{ image: url({_cu}); width: 7px; height: 5px; }}"
-            f"QDoubleSpinBox::down-arrow {{ image: url({_cd}); width: 7px; height: 5px; }}"
-        )
+        self._mhz_spin.setStyleSheet(spinbox_qss("QDoubleSpinBox"))
         layout.addRow("CPU clock:", self._mhz_spin)
 
         # OK / Cancel — accent the primary action button
@@ -81,12 +57,7 @@ class ConnectJLinkDialog(QtWidgets.QDialog):
         btns.rejected.connect(self.reject)
         ok_btn = btns.button(QtWidgets.QDialogButtonBox.StandardButton.Ok)
         if ok_btn is not None:
-            ok_btn.setStyleSheet(
-                "QPushButton { background: #1e3a5a; border: 1px solid #3870a8;"
-                "  color: #c8e0ff; padding: 4px 16px; border-radius: 3px; }"
-                "QPushButton:hover { background: #25487a; border-color: #5090c8; }"
-                "QPushButton:pressed { background: #142840; }"
-            )
+            ok_btn.setStyleSheet(primary_button_qss())
         layout.addRow(btns)
 
     def _browse_elf(self):

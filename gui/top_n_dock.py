@@ -4,13 +4,10 @@ Lists the N longest individual span instances in the trace (not averaged).
 Click a row to jump to and flash-highlight that exact call on the flame chart.
 """
 
-import pathlib
-
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from .sort_helpers import NumericSortItem, SortableHeader, pad_columns_for_sort_indicator
-
-_ICONS = pathlib.Path(__file__).parent / "icons"
+from .theme import spinbox_qss, THEME
 
 DEFAULT_N = 50
 
@@ -59,25 +56,7 @@ class TopNSlowestDock(QtWidgets.QDockWidget):
         self._n_spin.setValue(self._n)
         self._n_spin.setKeyboardTracking(False)
         self._n_spin.valueChanged.connect(self._on_n_changed)
-        _cu = (_ICONS / "chevron_up.svg").as_posix()
-        _cd = (_ICONS / "chevron_dn.svg").as_posix()
-        self._n_spin.setStyleSheet(
-            "QSpinBox::up-button {"
-            "  subcontrol-origin: border; subcontrol-position: right top;"
-            "  width: 18px; background: #22222c;"
-            "  border-left: 1px solid #3a3a4a; border-top-right-radius: 3px; }"
-            "QSpinBox::down-button {"
-            "  subcontrol-origin: border; subcontrol-position: right bottom;"
-            "  width: 18px; background: #22222c;"
-            "  border-left: 1px solid #3a3a4a; border-top: 1px solid #3a3a4a;"
-            "  border-bottom-right-radius: 3px; }"
-            "QSpinBox::up-button:hover, QSpinBox::down-button:hover {"
-            "  background: #2e2e3e; }"
-            "QSpinBox::up-button:pressed, QSpinBox::down-button:pressed {"
-            "  background: #1a1a26; }"
-            f"QSpinBox::up-arrow {{ image: url({_cu}); width: 7px; height: 5px; }}"
-            f"QSpinBox::down-arrow {{ image: url({_cd}); width: 7px; height: 5px; }}"
-        )
+        self._n_spin.setStyleSheet(spinbox_qss("QSpinBox"))
         ctrl_row.addWidget(self._n_spin)
         ctrl_row.addWidget(QtWidgets.QLabel("calls"))
         ctrl_row.addStretch(1)
@@ -111,6 +90,10 @@ class TopNSlowestDock(QtWidgets.QDockWidget):
             self._color_map = color_map
         self._all_spans = spans
         self._rebuild_table()
+
+    def refresh_theme(self):
+        """Reapply per-widget stylesheets after a theme change."""
+        self._n_spin.setStyleSheet(spinbox_qss("QSpinBox"))
 
     def set_unit(self, unit_label, unit_scale):
         """Switch display unit without re-sorting."""

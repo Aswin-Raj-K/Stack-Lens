@@ -16,6 +16,8 @@ import math
 import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from .theme import THEME, configure_pyqtgraph
+
 
 class JitterDialog(QtWidgets.QDialog):
     def __init__(self, name, times_us, unit_label, unit_scale, parent=None):
@@ -73,12 +75,16 @@ class JitterDialog(QtWidgets.QDialog):
         )
         stats_label = QtWidgets.QLabel(stats_html)
         stats_label.setStyleSheet(
-            "background:#22222c; color:#e0e0e0; padding:8px; border-radius:4px;"
+            f"background:{THEME['bg_raised']}; color:{THEME['text_primary']};"
+            "padding:8px; border-radius:4px;"
         )
         layout.addWidget(stats_label)
 
-        # Histogram
-        pg.setConfigOptions(background="#181820", foreground="#ffffff", antialias=False)
+        # Histogram — pyqtgraph colors are configured once at app startup
+        # by configure_pyqtgraph(); we call it here as a safety net in case
+        # this dialog is opened before the main window initializes.
+        configure_pyqtgraph()
+        pg.setConfigOptions(antialias=False)
 
         hist_label = QtWidgets.QLabel("<b>Period distribution (histogram)</b>")
         layout.addWidget(hist_label)

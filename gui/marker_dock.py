@@ -5,6 +5,7 @@ from collections import defaultdict
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from .sort_helpers import NumericSortItem, SortableHeader, pad_columns_for_sort_indicator
+from .theme import THEME
 
 
 # UserRole for storing the marker name on every cell in a row — survives
@@ -147,7 +148,7 @@ class MarkerDock(QtWidgets.QDockWidget):
 
                 # Name column — use mark color
                 name_item = QtWidgets.QTableWidgetItem(name)
-                name_item.setForeground(QtGui.QColor("#00ddff"))
+                name_item.setForeground(QtGui.QColor(THEME["status_mark"]))
                 name_item.setData(_ROLE_NAME, name)
                 table.setItem(row, 1, name_item)
 

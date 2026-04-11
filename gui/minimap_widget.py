@@ -6,6 +6,8 @@ Renders all spans once into a QPixmap cache for speed (131K spans takes
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from .theme import THEME, CANVAS_PAUSE_RGBA
+
 
 class MinimapWidget(QtWidgets.QWidget):
     """Compact full-trace overview with a draggable viewport indicator.
@@ -24,7 +26,7 @@ class MinimapWidget(QtWidgets.QWidget):
         self.setMouseTracking(True)
         self.setAutoFillBackground(True)
         pal = self.palette()
-        pal.setColor(self.backgroundRole(), QtGui.QColor("#181820"))
+        pal.setColor(self.backgroundRole(), QtGui.QColor(THEME["bg_base"]))
         self.setPalette(pal)
 
         self._cache = None          # QPixmap cache, invalidated on resize/data
@@ -107,7 +109,7 @@ class MinimapWidget(QtWidgets.QWidget):
         w = max(1, self.width())
         h = max(1, self.height())
         pm = QtGui.QPixmap(w, h)
-        pm.fill(QtGui.QColor("#181820"))
+        pm.fill(QtGui.QColor(THEME["bg_base"]))
 
         if self._total_us <= 0 or not self._spans:
             self._cache = pm
@@ -130,7 +132,7 @@ class MinimapWidget(QtWidgets.QWidget):
 
         # Pause regions: gray translucent bands UNDER the bars
         if self._pause_regions:
-            pause_fill = QtGui.QColor(120, 120, 120, 90)
+            pause_fill = QtGui.QColor(*CANVAS_PAUSE_RGBA)
             for r in self._pause_regions:
                 px0 = (r["start_us"] - self._t_min) * x_scale
                 px1 = (r["end_us"] - self._t_min) * x_scale
@@ -150,13 +152,13 @@ class MinimapWidget(QtWidgets.QWidget):
             # Convert dy (which can be negative for ISR) into a widget Y coord
             y = 1 + (dy - self._min_display_y) * row_h
 
-            color = QtGui.QColor(self._color_map.get(sp["name"], "#888"))
+            color = QtGui.QColor(self._color_map.get(sp["name"], THEME["canvas_fallback"]))
             p.fillRect(QtCore.QRectF(x, y, width, max(1.0, row_h - 0.2)), color)
 
         # Marks as bright cyan 2-pixel vertical lines (match main chart).
         # Stop at content_h so the lines don't bleed into the gutter.
         if self._marks:
-            mark_pen = QtGui.QPen(QtGui.QColor("#00ddff"))
+            mark_pen = QtGui.QPen(QtGui.QColor(THEME["status_mark"]))
             mark_pen.setWidth(2)
             p.setPen(mark_pen)
             for m in self._marks:
@@ -195,12 +197,13 @@ class MinimapWidget(QtWidgets.QWidget):
 
             # Viewport overlay — also clipped to the content region so the
             # yellow tint doesn't bleed into the separator gutter.
-            overlay = QtGui.QColor(255, 220, 0, 50)
+            overlay = QtGui.QColor(THEME["selection"])
+            overlay.setAlpha(50)
             p.fillRect(
                 QtCore.QRectF(vx1, 0, vx2 - vx1, content_h),
                 overlay,
             )
-            border = QtGui.QPen(QtGui.QColor("#ffcc00"))
+            border = QtGui.QPen(QtGui.QColor(THEME["selection"]))
             border.setWidth(1)
             p.setPen(border)
             p.drawRect(
@@ -218,13 +221,13 @@ class MinimapWidget(QtWidgets.QWidget):
         p.setPen(QtCore.Qt.PenStyle.NoPen)
         p.fillRect(
             QtCore.QRectF(0, gutter_top, w, self._GUTTER_PX),
-            QtGui.QColor("#1f1f2a"),
+            QtGui.QColor(THEME["bg_surface"]),
         )
-        shadow_pen = QtGui.QPen(QtGui.QColor("#0d0d14"))
+        shadow_pen = QtGui.QPen(QtGui.QColor(THEME["bg_base"]))
         shadow_pen.setWidth(1)
         p.setPen(shadow_pen)
         p.drawLine(0, gutter_top, w, gutter_top)
-        hl_pen = QtGui.QPen(QtGui.QColor("#3a3a4a"))
+        hl_pen = QtGui.QPen(QtGui.QColor(THEME["border_normal"]))
         hl_pen.setWidth(1)
         p.setPen(hl_pen)
         p.drawLine(0, h - 1, w, h - 1)

@@ -8,6 +8,7 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from .constants import ROW_HEIGHT, VIRIDIS
+from .theme import THEME, CANVAS_PAUSE_RGBA
 
 
 class FlameItem(pg.GraphicsObject):
@@ -68,7 +69,7 @@ class FlameItem(pg.GraphicsObject):
                 display_y = -(sp["depth"] + 1)
                 self._has_isr = True
 
-            fn_color = QtGui.QColor(color_map.get(sp["name"], "#888"))
+            fn_color = QtGui.QColor(color_map.get(sp["name"], THEME["canvas_fallback"]))
 
             dur = sp["duration_us"]
             if dur > 0:
@@ -194,7 +195,7 @@ class FlameItem(pg.GraphicsObject):
             for s in lst:
                 if s["name"] == name:
                     return s["fn_color"]
-        return QtGui.QColor("#888888")
+        return QtGui.QColor(THEME["canvas_fallback"])
 
     def nearest_mark(self, x_rel, tolerance_data):
         """Find the mark closest to ``x_rel`` within ``tolerance_data`` data units.
@@ -259,8 +260,8 @@ class FlameItem(pg.GraphicsObject):
         # The underlay is translucent so the spans on top stay readable; the
         # vertical edge lines guarantee even narrow bands stay visible.
         if self._pause_regions:
-            pause_fill = QtGui.QColor(110, 110, 120, 90)   # neutral gray
-            edge_pen = QtGui.QPen(QtGui.QColor("#aaaaaa"))
+            pause_fill = QtGui.QColor(*CANVAS_PAUSE_RGBA)
+            edge_pen = QtGui.QPen(QtGui.QColor(THEME["canvas_edge"]))
             edge_pen.setWidth(2)
             edge_pen.setCosmetic(True)
             top_y_full = self._bounds.top()
@@ -313,7 +314,7 @@ class FlameItem(pg.GraphicsObject):
         if self._pause_regions:
             top_y_full = self._bounds.top()
             bot_y_full = self._bounds.bottom()
-            overlay = QtGui.QColor(30, 30, 35, 110)  # neutral dark dim
+            overlay = QtGui.QColor(30, 30, 35, 110)
             painter.setPen(QtCore.Qt.PenStyle.NoPen)
             for r in self._pause_regions:
                 if r["x1"] < x_lo or r["x0"] > x_hi:
@@ -328,7 +329,7 @@ class FlameItem(pg.GraphicsObject):
             label_anchor_y = max(top_y_full, y_lo)
             painter.save()
             painter.resetTransform()
-            painter.setPen(QtGui.QColor("#dddddd"))
+            painter.setPen(QtGui.QColor(THEME["text_primary"]))
             font = QtGui.QFont("Segoe UI", 10, QtGui.QFont.Weight.Bold)
             painter.setFont(font)
             for r in self._pause_regions:
@@ -357,13 +358,12 @@ class FlameItem(pg.GraphicsObject):
             i_lo = max(0, bisect_left(self._mark_x, x_lo - margin) - 1)
             i_hi = bisect_right(self._mark_x, x_hi + margin)
 
-            # Bright cyan line — much more visible than faint white
-            line_pen = QtGui.QPen(QtGui.QColor("#00ddff"))
+            line_pen = QtGui.QPen(QtGui.QColor(THEME["status_mark"]))
             line_pen.setWidth(2)
             line_pen.setCosmetic(True)  # 2 pixels regardless of zoom
             painter.setPen(line_pen)
 
-            mark_color = QtGui.QColor("#00ddff")
+            mark_color = QtGui.QColor(THEME["status_mark"])
             flag_height = 0.35  # data units, placed just below top_y
 
             hidden_marks = self._hidden_marks
@@ -396,7 +396,7 @@ class FlameItem(pg.GraphicsObject):
 
             painter.save()
             painter.resetTransform()
-            painter.setPen(QtGui.QColor("#ffffff"))
+            painter.setPen(QtGui.QColor(THEME["text_white"]))
             label_font = QtGui.QFont("Segoe UI", 8)
             painter.setFont(label_font)
             fm = painter.fontMetrics()
@@ -469,10 +469,12 @@ class FlameItem(pg.GraphicsObject):
             x = tl.x() + 10
             y = tl.y() + 10
             pill = QtCore.QRectF(x, y, tw + 2 * pad, th + 2 * pad)
-            painter.setPen(QtGui.QPen(QtGui.QColor("#5a5a70"), 1))
-            painter.setBrush(QtGui.QColor(15, 15, 20, 220))
+            painter.setPen(QtGui.QPen(QtGui.QColor(THEME["scroll_handle_hover"]), 1))
+            pill_bg = QtGui.QColor(THEME["bg_elevated"])
+            pill_bg.setAlpha(220)
+            painter.setBrush(pill_bg)
             painter.drawRoundedRect(pill, 4, 4)
-            painter.setPen(QtGui.QColor("#ffffff"))
+            painter.setPen(QtGui.QColor(THEME["text_primary"]))
             painter.drawText(
                 pill,
                 QtCore.Qt.AlignmentFlag.AlignCenter,
