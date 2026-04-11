@@ -1,0 +1,4 @@
+pylink-square>=1.0.0
+pyelftools>=0.29
+pyqtgraph>=0.13.0
+PySide6>=6.5.0
