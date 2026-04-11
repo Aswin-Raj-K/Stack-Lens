@@ -1,0 +1,83 @@
+{
+    "bg_base":       "#000000",
+    "bg_surface":    "#0a0a0a",
+    "bg_raised":     "#111111",
+    "bg_elevated":   "#1a1a1a",
+    "bg_ctrl_panel": "#0d0d0d",
+    "bg_dock_title": "#1a1a1a",
+
+    "text_primary":  "#ffffff",
+    "text_btn":      "#ffffff",
+    "text_secondary":"#cccccc",
+    "text_muted":    "#aaaaaa",
+    "text_disabled": "#666666",
+    "text_white":    "#ffffff",
+
+    "accent_primary":             "#00aaff",
+    "accent_hover":               "#0088ee",
+    "accent_border":              "#0088ee",
+    "accent_pressed":             "#004488",
+    "accent_text":                "#ffffff",
+    "accent_checked_bg":          "#002255",
+    "accent_checked_border":      "#00aaff",
+    "accent_checked_text":        "#80ddff",
+    "accent_checked_hover":       "#003377",
+    "accent_checked_hover_border":"#44ccff",
+    "accent_checked_hover_text":  "#aaeeff",
+
+    "pick_a":    "#ff8800",
+    "pick_b":    "#00ddff",
+    "selection": "#ffee00",
+
+    "status_error_bg": "#880000",
+    "status_mark":     "#00ddff",
+
+    "border_subtle":  "#222222",
+    "border_normal":  "#444444",
+    "border_input":   "#666666",
+    "border_strong":  "#666666",
+    "border_toolbar": "#333333",
+    "border_header":  "#111111",
+
+    "canvas_edge":     "#ffffff",
+    "canvas_fallback": "#aaaaaa",
+
+    "interactive_hover":        "#222222",
+    "interactive_pressed":      "#111111",
+    "interactive_hover_btn":    "#222222",
+    "interactive_pressed_btn":  "#111111",
+    "interactive_ctrl_hover":   "#2a2a2a",
+    "interactive_ctrl_pressed": "#111111",
+
+    "bg_ctrl_btn":   "#1a1a1a",
+    "bg_ctrl_input": "#050505",
+
+    "selection_bg": "#002255",
+
+    "toolbar_btn_text":           "#ffffff",
+    "toolbar_btn_border":         "#555555",
+    "toolbar_btn_hover_bg":       "#2a2a2a",
+    "toolbar_btn_hover_border":   "#888888",
+    "toolbar_btn_hover_text":     "#ffffff",
+    "toolbar_btn_pressed_bg":     "#000000",
+    "toolbar_btn_pressed_border": "#666666",
+
+    "tab_hover_bg":      "#1a1a1a",
+    "tab_hover_text":    "#ffffff",
+    "tab_selected_text": "#ffffff",
+
+    "dock_title_text":   "#ffffff",
+    "header_hover_text": "#ffffff",
+
+    "text_status": "#cccccc",
+
+    "scroll_handle":         "#444444",
+    "scroll_handle_hover":   "#666666",
+    "scroll_handle_pressed": "#888888",
+
+    "dock_btn_bg":           "#333333",
+    "dock_btn_border":       "#666666",
+    "dock_btn_hover_bg":     "#555555",
+    "dock_btn_hover_border": "#999999",
+    "dock_btn_pressed_bg":   "#777777"
+}

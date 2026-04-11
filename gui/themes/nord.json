@@ -1,0 +1,83 @@
+{
+    "bg_base":       "#2e3440",
+    "bg_surface":    "#3b4252",
+    "bg_raised":     "#434c5e",
+    "bg_elevated":   "#4c566a",
+    "bg_ctrl_panel": "#373e4d",
+    "bg_dock_title": "#3b4252",
+
+    "text_primary":  "#eceff4",
+    "text_btn":      "#e5e9f0",
+    "text_secondary":"#d8dee9",
+    "text_muted":    "#a0a8b8",
+    "text_disabled": "#4c566a",
+    "text_white":    "#eceff4",
+
+    "accent_primary":             "#5e81ac",
+    "accent_hover":               "#4e71a0",
+    "accent_border":              "#4e71a0",
+    "accent_pressed":             "#2e4a70",
+    "accent_text":                "#eceff4",
+    "accent_checked_bg":          "#2e4a70",
+    "accent_checked_border":      "#5e81ac",
+    "accent_checked_text":        "#88c0d0",
+    "accent_checked_hover":       "#3a5880",
+    "accent_checked_hover_border":"#81a1c1",
+    "accent_checked_hover_text":  "#8fbcbb",
+
+    "pick_a":    "#d08770",
+    "pick_b":    "#88c0d0",
+    "selection": "#ebcb8b",
+
+    "status_error_bg": "#5a2020",
+    "status_mark":     "#88c0d0",
+
+    "border_subtle":  "#2e3440",
+    "border_normal":  "#4c566a",
+    "border_input":   "#5e6a80",
+    "border_strong":  "#5e6a80",
+    "border_toolbar": "#2e3440",
+    "border_header":  "#3b4252",
+
+    "canvas_edge":     "#a0a8b8",
+    "canvas_fallback": "#7a8898",
+
+    "interactive_hover":        "#434c5e",
+    "interactive_pressed":      "#3b4252",
+    "interactive_hover_btn":    "#4c566a",
+    "interactive_pressed_btn":  "#3b4252",
+    "interactive_ctrl_hover":   "#4c566a",
+    "interactive_ctrl_pressed": "#3b4252",
+
+    "bg_ctrl_btn":   "#434c5e",
+    "bg_ctrl_input": "#2e3440",
+
+    "selection_bg": "#4c566a",
+
+    "toolbar_btn_text":           "#d8dee9",
+    "toolbar_btn_border":         "#4c566a",
+    "toolbar_btn_hover_bg":       "#4c566a",
+    "toolbar_btn_hover_border":   "#6a7898",
+    "toolbar_btn_hover_text":     "#eceff4",
+    "toolbar_btn_pressed_bg":     "#2e3440",
+    "toolbar_btn_pressed_border": "#5e6a80",
+
+    "tab_hover_bg":      "#434c5e",
+    "tab_hover_text":    "#eceff4",
+    "tab_selected_text": "#eceff4",
+
+    "dock_title_text":   "#eceff4",
+    "header_hover_text": "#eceff4",
+
+    "text_status": "#a0a8b8",
+
+    "scroll_handle":         "#4c566a",
+    "scroll_handle_hover":   "#606c80",
+    "scroll_handle_pressed": "#707c90",
+
+    "dock_btn_bg":           "#4c566a",
+    "dock_btn_border":       "#6a7898",
+    "dock_btn_hover_bg":     "#6a7898",
+    "dock_btn_hover_border": "#88a0b8",
+    "dock_btn_pressed_bg":   "#8890a8"
+}
