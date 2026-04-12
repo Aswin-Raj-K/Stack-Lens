@@ -2,7 +2,7 @@
 
 import pathlib
 
-from .theme import THEME, _ICONS
+from .theme import FONT_MONO, THEME, _ICONS
 
 COLORS = [
     "#4C78A8", "#F58518", "#E45756", "#72B7B2", "#54A24B",
@@ -311,6 +311,42 @@ QLabel#ModeBadge {{
     padding: 1px 8px;
     font-weight: bold;
 }}
+
+/* ── Keyboard shortcut overlay panel ────────────────────────── */
+QFrame#ShortcutPanel {{
+    background: {bg_elevated};
+    border: 1px solid {border_input};
+    border-radius: 8px;
+}}
+QFrame#ShortcutPanel QLabel {{
+    color: {text_secondary};
+    background: transparent;
+}}
+QFrame#ShortcutPanel QLabel#ShortcutTitle {{
+    font-size: 13pt;
+    font-weight: bold;
+    color: {text_white};
+}}
+QFrame#ShortcutPanel QLabel#SectionHeader {{
+    font-weight: bold;
+    color: {accent_checked_text};
+    padding: 2px 0px;
+}}
+QFrame#ShortcutPanel QLabel#KeyLabel {{
+    font-family: {font_mono};
+    color: {text_primary};
+    background: {bg_ctrl_panel};
+    border: 1px solid {interactive_ctrl_hover};
+    border-radius: 3px;
+    padding: 1px 6px;
+}}
+QFrame#ShortcutPanel QLabel#DescLabel {{ color: {text_muted}; }}
+QFrame#ShortcutPanel QLabel#HintLabel  {{ color: {text_disabled}; }}
+QFrame#ShortcutPanel QFrame#SectionSep {{
+    border: none;
+    border-top: 1px solid {border_subtle};
+    max-height: 1px;
+}}
 """
 
 
@@ -319,6 +355,7 @@ def build_dark_stylesheet() -> str:
     return _DARK_STYLESHEET_TMPL.format(
         sort_asc=(_ICONS / "sort_asc.svg").as_posix(),
         sort_desc=(_ICONS / "sort_desc.svg").as_posix(),
+        font_mono=FONT_MONO,
         **THEME,
     )
 

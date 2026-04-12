@@ -10,20 +10,16 @@ _RECENT_MAX = 8
 import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from trace_io import export_csv, export_json
+from trace_io import export_csv, export_json, import_json
 
-from trace_io import import_json
-
+from .axes import DepthAxis, UnitAxis
 from .call_graph_dock import CallGraphDock
 from .call_tree_dock import CallTreeDock
 from .color_bar import ColorBarWidget
 from .constants import COLORS, DEFAULT_WINDOW_US, ROW_HEIGHT, build_dark_stylesheet, build_stylesheet
-from .theme import (
-    THEME, THEMES, CANVAS_DIM_RGBA, Z_PICK, Z_SELECTION, Z_HIGHLIGHT,
-    SELECTION_FILL_ALPHA, configure_pyqtgraph, spinbox_qss, _ICONS,
-    apply_theme,
-)
+from .cursor_handle import CursorHandle
 from .dock_title_bar import DockTitleBar
+from .event_filters import _QuestionKeyFilter, _ZoomKeyFilter
 from .flame_item import FlameItem
 from .jitter_dialog import JitterDialog
 from .marker_dock import MarkerDock
@@ -32,219 +28,12 @@ from .ribbon_dock import RibbonDock
 from .settings_dialog import SettingsDialog
 from .shortcut_overlay import ShortcutOverlay
 from .summary_dock import SummaryDock
+from .theme import (
+    THEME, THEMES, CANVAS_DIM_RGBA, Z_PICK, Z_SELECTION, Z_HIGHLIGHT,
+    SELECTION_FILL_ALPHA, configure_pyqtgraph, spinbox_qss, _ICONS,
+    apply_theme,
+)
 from .top_n_dock import TopNSlowestDock
-
-
-# ── Custom axis that scales tick labels by a unit factor (us ↔ ms) ──
-
-class UnitAxis(pg.AxisItem):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.unit_scale = 1.0  # 1.0 = us, 0.001 = ms
-
-    def tickStrings(self, values, scale, spacing):
-        out = []
-        for v in values:
-            scaled = v * self.unit_scale
-            if abs(scaled) >= 1000:
-                out.append(f"{scaled:.0f}")
-            elif abs(scaled) >= 10:
-                out.append(f"{scaled:.1f}")
-            else:
-                out.append(f"{scaled:.2f}")
-        return out
-
-
-class DepthAxis(pg.AxisItem):
-    """Y-axis with integer depth labels centred vertically in each function bar.
-
-    Bars occupy [depth, depth + ROW_HEIGHT] in data coords.
-    Tick marks are placed at depth + ROW_HEIGHT/2 (bar centre).
-    Only major ticks are returned — no minor subticks.
-    """
-
-    def tickValues(self, minVal, maxVal, size):
-        half = ROW_HEIGHT / 2
-        # With invertY(True) pyqtgraph passes minVal > maxVal, so normalise.
-        lo_val = min(minVal, maxVal)
-        hi_val = max(minVal, maxVal)
-        lo = int(lo_val) - 1
-        hi = int(hi_val) + 2
-        major = [
-            d + half
-            for d in range(lo, hi + 1)
-            if lo_val <= d + half <= hi_val
-        ]
-        return [(1, major)]  # one level → major only, no subticks
-
-    def tickStrings(self, values, scale, spacing):
-        half = ROW_HEIGHT / 2
-        return [str(int(round(v - half))) for v in values]
-
-
-# ── Helpers ──────────────────────────────────────────────────────────
-
-class _ZoomKeyFilter(QtCore.QObject):
-    """App-level filter for zoom-in/out via bare '+' and '-'.
-
-    QShortcut key sequences are unreliable for shifted keys like '+' (reported
-    as Key_Plus | ShiftModifier on most platforms). Checking event.text() is
-    layout-independent and works regardless of which child widget has focus.
-    """
-
-    _INPUT_TYPES = (
-        QtWidgets.QLineEdit,
-        QtWidgets.QTextEdit,
-        QtWidgets.QPlainTextEdit,
-        QtWidgets.QComboBox,
-    )
-
-    def __init__(self, zoom_in, zoom_out, parent=None):
-        super().__init__(parent)
-        self._zoom_in = zoom_in
-        self._zoom_out = zoom_out
-
-    def eventFilter(self, obj, event):  # noqa: N802
-        if event.type() == QtCore.QEvent.Type.KeyPress:
-            text = event.text()
-            focused = QtWidgets.QApplication.focusWidget()
-            if not isinstance(focused, self._INPUT_TYPES):
-                if text == "+":
-                    self._zoom_in()
-                    return True
-                if text == "-":
-                    self._zoom_out()
-                    return True
-        return False
-
-
-class _QuestionKeyFilter(QtCore.QObject):
-    """App-level event filter that triggers the shortcut overlay on '?'.
-
-    Installed on QApplication so it fires before any widget's own
-    keyPressEvent — including QTableWidget / QTreeWidget which would
-    otherwise swallow the key for their own navigation.
-
-    Skips the callback when the focused widget is an editable input
-    (QLineEdit, QTextEdit, QPlainTextEdit, QComboBox) so that typing
-    '?' in a search box still works normally.
-    """
-
-    _INPUT_TYPES = (
-        QtWidgets.QLineEdit,
-        QtWidgets.QTextEdit,
-        QtWidgets.QPlainTextEdit,
-        QtWidgets.QComboBox,
-    )
-
-    def __init__(self, callback, parent=None):
-        super().__init__(parent)
-        self._callback = callback
-
-    def eventFilter(self, obj, event):  # noqa: N802
-        if event.type() == QtCore.QEvent.Type.KeyPress:
-            key = event.key()
-            # Key_Question covers '?' on all layouts; Key_Slash + Shift
-            # is the US-keyboard way to produce '?', caught as a fallback.
-            is_question = key == QtCore.Qt.Key.Key_Question or (
-                key == QtCore.Qt.Key.Key_Slash
-                and event.modifiers() & QtCore.Qt.KeyboardModifier.ShiftModifier
-            )
-            if is_question:
-                focused = QtWidgets.QApplication.focusWidget()
-                if not isinstance(focused, self._INPUT_TYPES):
-                    self._callback()
-                    return True  # consume — don't pass to the widget
-        return False
-
-
-class CursorHandle(pg.GraphicsObject):
-    """Fixed-pixel-size grab tab drawn at the top of a measurement cursor line.
-
-    Positioned in data coordinates at (cursor.value(), viewRect.top()).
-    Painted in device (screen-pixel) coordinates so the tab never changes
-    visual size when the user zooms the time axis.
-    Dragging the tab moves the parent InfiniteLine horizontally.
-    """
-
-    _HW = 7   # half-width of the rectangle base, in pixels
-    _HR = 9   # height of the rectangle base, in pixels
-    _HT = 6   # height of the triangular tip, in pixels
-
-    def __init__(self, cursor: pg.InfiniteLine, color: str):
-        super().__init__()
-        self._cursor = cursor
-        self._brush = pg.mkBrush(color)
-        self._hover_brush = pg.mkBrush(QtGui.QColor(color).lighter(140))
-        self._pen = pg.mkPen(QtGui.QColor(color).darker(150), width=1)
-        self._hovered = False
-        self.setAcceptHoverEvents(True)
-        self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
-        self.setZValue(200)
-
-    def boundingRect(self) -> QtCore.QRectF:
-        vb = self.getViewBox()
-        if vb is None:
-            return QtCore.QRectF(-1, -0.1, 2, 0.5)
-        ps = vb.viewPixelSize()
-        if ps[0] is None or ps[0] == 0:
-            return QtCore.QRectF(-1, -0.1, 2, 0.5)
-        x_pp, y_pp = ps
-        hw = (self._HW + 2) * x_pp
-        hh = (self._HR + self._HT + 2) * abs(y_pp)
-        return QtCore.QRectF(-hw, 0, hw * 2, hh)
-
-    def shape(self) -> QtGui.QPainterPath:
-        p = QtGui.QPainterPath()
-        p.addRect(self.boundingRect())
-        return p
-
-    def paint(self, painter, option, widget=None):
-        # Map the item's origin (data position) to screen pixel coordinates.
-        # painter.transform() is the full item-local → device transform, so
-        # mapping (0, 0) gives the on-screen pixel position of this handle.
-        origin = painter.transform().map(QtCore.QPointF(0, 0))
-        painter.save()
-        painter.resetTransform()          # switch to raw device (pixel) coords
-        painter.translate(origin)         # move origin to handle's screen position
-        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-        painter.setBrush(self._hover_brush if self._hovered else self._brush)
-        painter.setPen(self._pen)
-        hw, hr, ht = self._HW, self._HR, self._HT
-        # Rectangle base with a downward-pointing triangular tip
-        path = QtGui.QPainterPath()
-        path.moveTo(-hw, 0)
-        path.lineTo( hw, 0)
-        path.lineTo( hw, hr)
-        path.lineTo(  0, hr + ht)
-        path.lineTo(-hw, hr)
-        path.closeSubpath()
-        painter.drawPath(path)
-        painter.restore()
-
-    def hoverEvent(self, ev):
-        changed = False
-        if not ev.isExit():
-            if not self._hovered:
-                self._hovered = True
-                self.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
-                changed = True
-        else:
-            if self._hovered:
-                self._hovered = False
-                self.unsetCursor()
-                changed = True
-        if changed:
-            self.update()
-
-    def mouseDragEvent(self, ev, axis=None):
-        if ev.button() != QtCore.Qt.MouseButton.LeftButton:
-            return
-        vb = self.getViewBox()
-        if vb:
-            x = vb.mapSceneToView(ev.scenePos()).x()
-            self._cursor.setPos(x)
-        ev.accept()
 
 
 # ── Main window ──────────────────────────────────────────────────────

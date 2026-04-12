@@ -4,6 +4,7 @@ from collections import defaultdict
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from .dock_base import DockBase
 from .sort_helpers import NumericSortItem, SortableHeader, pad_columns_for_sort_indicator
 from .theme import THEME
 
@@ -14,7 +15,7 @@ _ROLE_NAME = QtCore.Qt.ItemDataRole.UserRole + 1
 _ROLE_STAT_KEY = QtCore.Qt.ItemDataRole.UserRole + 2  # "first"/"last"
 
 
-class MarkerDock(QtWidgets.QDockWidget):
+class MarkerDock(DockBase):
     """Lists unique markers with count, first/last time, context, visibility.
 
     Signals:
@@ -36,10 +37,6 @@ class MarkerDock(QtWidgets.QDockWidget):
         self._stats_by_name = {}
         self._updating = False
         self._search_text = ""
-
-        # Display unit
-        self._unit_label = "us"
-        self._unit_scale = 1.0
 
         container = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(container)
@@ -191,8 +188,7 @@ class MarkerDock(QtWidgets.QDockWidget):
 
     def set_unit(self, unit_label, unit_scale):
         """Switch time display unit between 'us' and 'ms'."""
-        self._unit_label = unit_label
-        self._unit_scale = unit_scale
+        super().set_unit(unit_label, unit_scale)
         self._updating = True
         self._table.setSortingEnabled(False)
         try:

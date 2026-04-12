@@ -6,6 +6,7 @@ Click a row to jump to and flash-highlight that exact call on the flame chart.
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from .dock_base import DockBase
 from .sort_helpers import NumericSortItem, SortableHeader, pad_columns_for_sort_indicator
 from .theme import spinbox_qss, THEME
 
@@ -17,7 +18,7 @@ _ROLE_SPAN_IDX = QtCore.Qt.ItemDataRole.UserRole + 1
 _ROLE_STAT_KEY = QtCore.Qt.ItemDataRole.UserRole + 2  # "duration" / "start"
 
 
-class TopNSlowestDock(QtWidgets.QDockWidget):
+class TopNSlowestDock(DockBase):
     """Right-side dock listing the slowest individual span instances.
 
     Signals:
@@ -34,8 +35,6 @@ class TopNSlowestDock(QtWidgets.QDockWidget):
 
         self._color_map = color_map
         self._top_spans = []   # raw us values for the current top-N list
-        self._unit_label = "us"
-        self._unit_scale = 1.0
         self._n = DEFAULT_N
         self._updating = False
 
@@ -93,12 +92,12 @@ class TopNSlowestDock(QtWidgets.QDockWidget):
 
     def refresh_theme(self):
         """Reapply per-widget stylesheets after a theme change."""
+        super().refresh_theme()
         self._n_spin.setStyleSheet(spinbox_qss("QSpinBox"))
 
     def set_unit(self, unit_label, unit_scale):
         """Switch display unit without re-sorting."""
-        self._unit_label = unit_label
-        self._unit_scale = unit_scale
+        super().set_unit(unit_label, unit_scale)
         self._updating = True
         self._table.setSortingEnabled(False)
         try:

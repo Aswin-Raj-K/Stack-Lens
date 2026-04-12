@@ -16,6 +16,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from span_builder import build_call_tree
 
+from .dock_base import DockBase
 from .theme import THEME
 
 # ── Layout constants ──────────────────────────────────────────────────
@@ -342,7 +343,7 @@ class _GraphView(QtWidgets.QGraphicsView):
 # Dock widget
 # ═══════════════════════════════════════════════════════════════════════
 
-class CallGraphDock(QtWidgets.QDockWidget):
+class CallGraphDock(DockBase):
     """Dock that renders the aggregated call tree as an interactive node-link graph.
 
     Signals:
@@ -357,8 +358,6 @@ class CallGraphDock(QtWidgets.QDockWidget):
         self.setAllowedAreas(QtCore.Qt.DockWidgetArea.AllDockWidgetAreas)
 
         self._color_map = color_map
-        self._unit_label = "us"
-        self._unit_scale = 1.0
         self._node_items: list = []   # list of (path, _NodeItem, raw_node)
 
         container = QtWidgets.QWidget()
@@ -413,12 +412,12 @@ class CallGraphDock(QtWidgets.QDockWidget):
 
     def refresh_theme(self):
         """Update graph view and scene backgrounds for the current theme."""
+        super().refresh_theme()
         self._view.refresh_theme()
 
     def set_unit(self, unit_label: str, unit_scale: float):
         """Refresh node labels for a new display unit (us / ms)."""
-        self._unit_label = unit_label
-        self._unit_scale = unit_scale
+        super().set_unit(unit_label, unit_scale)
         for _path, item, node in self._node_items:
             item.set_label(node["inclusive_us"] * unit_scale, unit_label)
 

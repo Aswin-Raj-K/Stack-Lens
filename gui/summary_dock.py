@@ -4,6 +4,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from span_builder import compute_stats
 
+from .dock_base import DockBase
 from .sort_helpers import NumericSortItem, SortableHeader, pad_columns_for_sort_indicator
 
 
@@ -13,7 +14,7 @@ _ROLE_RAW_US = QtCore.Qt.ItemDataRole.UserRole + 2     # raw microsecond value (
 _ROLE_STAT_KEY = QtCore.Qt.ItemDataRole.UserRole + 3   # which stat ("total"/"avg"/"max") — for refresh
 
 
-class SummaryDock(QtWidgets.QDockWidget):
+class SummaryDock(DockBase):
     """Function stats table with a visibility checkbox per row.
 
     Signals:
@@ -39,10 +40,6 @@ class SummaryDock(QtWidgets.QDockWidget):
         self._stats_by_name = {}
         self._updating = False  # guard against itemChanged loops
         self._search_text = ""  # current search filter (lowercased)
-
-        # Display unit (default microseconds)
-        self._unit_label = "us"
-        self._unit_scale = 1.0
 
         container = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(container)
@@ -175,8 +172,7 @@ class SummaryDock(QtWidgets.QDockWidget):
 
     def set_unit(self, unit_label, unit_scale):
         """Switch display unit between 'us' and 'ms' (purely a display change)."""
-        self._unit_label = unit_label
-        self._unit_scale = unit_scale
+        super().set_unit(unit_label, unit_scale)
         self._updating = True
         self._table.setSortingEnabled(False)
         try:

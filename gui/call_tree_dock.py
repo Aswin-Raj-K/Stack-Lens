@@ -3,6 +3,8 @@
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from span_builder import build_call_tree
+
+from .dock_base import DockBase
 from .sort_helpers import SortableHeader
 
 
@@ -33,7 +35,7 @@ class _SortableTreeItem(QtWidgets.QTreeWidgetItem):
         return float(a) < float(b)
 
 
-class CallTreeDock(QtWidgets.QDockWidget):
+class CallTreeDock(DockBase):
     """Tree view of aggregated function calls.
 
     Columns:
@@ -56,10 +58,6 @@ class CallTreeDock(QtWidgets.QDockWidget):
 
         self._color_map = color_map
         self._total_us = max(total_us, 1e-9)
-
-        # Display unit (default us)
-        self._unit_label = "us"
-        self._unit_scale = 1.0
 
         self._tree = QtWidgets.QTreeWidget()
         self._tree.setColumnCount(6)
@@ -131,8 +129,7 @@ class CallTreeDock(QtWidgets.QDockWidget):
 
     def set_unit(self, unit_label, unit_scale):
         """Switch display unit between 'us' and 'ms'."""
-        self._unit_label = unit_label
-        self._unit_scale = unit_scale
+        super().set_unit(unit_label, unit_scale)
         self._tree.setSortingEnabled(False)
         try:
             self._apply_headers()

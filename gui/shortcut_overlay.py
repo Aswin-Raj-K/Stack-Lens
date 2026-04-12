@@ -6,8 +6,6 @@ shortcut in a grid. Dismissed by any key press or mouse click.
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from .theme import FONT_MONO, THEME
-
 
 # Single source of truth for what's shown. Keep in sync with the actions
 # registered in ProfilerWindow._build_menu / _install_pan_zoom_shortcuts.
@@ -62,36 +60,6 @@ class ShortcutOverlay(QtWidgets.QWidget):
 
         self._panel = QtWidgets.QFrame(self)
         self._panel.setObjectName("ShortcutPanel")
-        T = THEME
-        self._panel.setStyleSheet(
-            f"QFrame#ShortcutPanel {{"
-            f"  background: rgba(26, 26, 38, 252);"
-            f"  border: 1px solid {T['border_input']};"
-            f"  border-radius: 8px;"
-            f"}}"
-            f"QLabel {{ color: #c8c8e0; background: transparent; }}"
-            f"QLabel#ShortcutTitle {{"
-            f"  font-size: 13pt; font-weight: bold; color: {T['text_white']};"
-            f"}}"
-            f"QLabel#SectionHeader {{"
-            f"  font-weight: bold; color: {T['accent_checked_text']};"
-            f"  padding: 2px 0px;"
-            f"}}"
-            # Key chip: monospace badge matching the DockCtrlPanel look
-            f"QLabel#KeyLabel {{"
-            f"  font-family: {FONT_MONO};"
-            f"  color: {T['text_primary']}; background: {T['bg_ctrl_panel']};"
-            f"  border: 1px solid {T['interactive_ctrl_hover']}; border-radius: 3px;"
-            f"  padding: 1px 6px;"
-            f"}}"
-            f"QLabel#DescLabel {{ color: #9898b8; }}"
-            f"QLabel#HintLabel  {{ color: #606080; }}"
-            # Thin horizontal rule between sections
-            f"QFrame#SectionSep {{"
-            f"  color: {T['interactive_hover']}; border: none; border-top: 1px solid {T['interactive_hover']};"
-            f"  max-height: 1px;"
-            f"}}"
-        )
 
         grid = QtWidgets.QGridLayout(self._panel)
         grid.setContentsMargins(28, 22, 28, 20)
