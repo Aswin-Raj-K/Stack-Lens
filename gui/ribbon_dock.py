@@ -13,6 +13,69 @@ import math
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from .theme import THEME
+
+
+class _CloseButton(QtWidgets.QAbstractButton):
+    """Compact close button that draws a crisp diagonal-line × glyph.
+
+    Fully painted — no text, no OS chrome, no border by default.
+    Brightens the cross on hover; dims when pressed.
+    """
+
+    _SIZE = 16  # total widget size (square)
+    _PAD  = 4   # inset from widget edge to the × endpoints
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(self._SIZE, self._SIZE)
+        self.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_Hover)
+        self._hovered = False
+
+    # track hover manually for reliable repaint
+    def event(self, ev):
+        if ev.type() == QtCore.QEvent.Type.HoverEnter:
+            self._hovered = True
+            self.update()
+        elif ev.type() == QtCore.QEvent.Type.HoverLeave:
+            self._hovered = False
+            self.update()
+        return super().event(ev)
+
+    def paintEvent(self, _event):
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+
+        # Background pill on hover
+        if self._hovered:
+            bg = QtGui.QColor(THEME.get("interactive_hover", "#ffffff"))
+            bg.setAlpha(50)
+            p.setBrush(bg)
+            p.setPen(QtCore.Qt.PenStyle.NoPen)
+            r = self._SIZE / 2
+            p.drawRoundedRect(QtCore.QRectF(0, 0, self._SIZE, self._SIZE), r, r)
+
+        # × cross
+        if self.isDown():
+            color = QtGui.QColor(THEME.get("text_disabled", "#888888"))
+        elif self._hovered:
+            color = QtGui.QColor(THEME.get("text_primary", "#e0e0e0"))
+        else:
+            color = QtGui.QColor(THEME.get("text_muted", "#9090a0"))
+
+        pen = QtGui.QPen(color, 1.5, QtCore.Qt.PenStyle.SolidLine,
+                         QtCore.Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        pad = self._PAD
+        s   = self._SIZE
+        p.drawLine(QtCore.QLineF(pad, pad, s - pad, s - pad))
+        p.drawLine(QtCore.QLineF(s - pad, pad, pad, s - pad))
+        p.end()
+
+    def sizeHint(self):
+        return QtCore.QSize(self._SIZE, self._SIZE)
+
 
 class RibbonRow(QtWidgets.QWidget):
     """One ribbon strip showing all occurrences of a single function."""
@@ -47,11 +110,8 @@ class RibbonRow(QtWidgets.QWidget):
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
         layout.setSpacing(6)
-        close_btn = QtWidgets.QToolButton()
-        close_btn.setText("×")
+        close_btn = _CloseButton()
         close_btn.setToolTip(f"Remove {name} ribbon")
-        close_btn.setFixedSize(20, 20)
-        close_btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(lambda: self.remove_requested.emit(self._name))
         layout.addWidget(close_btn)
 
