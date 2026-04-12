@@ -297,6 +297,8 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self._picked_b = None
         self._pick_overlay_a = None
         self._pick_overlay_b = None
+        self._pick_label_a = None
+        self._pick_label_b = None
 
         # Zoom-to-selection state
         self._select_mode = False
@@ -1942,7 +1944,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self._update_pick_label()
 
     def _draw_pick_overlay(self, sp, which):
-        """Add a translucent highlight rectangle over the picked span."""
+        """Add a translucent highlight rectangle + A/B badge over the picked span."""
         border = QtGui.QColor(THEME["pick_a"] if which == "a" else THEME["pick_b"])
         fill = QtGui.QColor(border)
         fill.setAlpha(110)
@@ -1957,10 +1959,31 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         rect.setPen(pen)
         rect.setZValue(Z_PICK)
         self.plot.addItem(rect)
+
+        # Bold "A" / "B" badge centred on the bar so the user always knows
+        # which pick is which directly on the flame chart.
+        badge_font = QtGui.QFont()
+        badge_font.setBold(True)
+        badge_font.setPointSize(8)
+        pick_color = THEME["pick_a"] if which == "a" else THEME["pick_b"]
+        badge = pg.TextItem(
+            text="A" if which == "a" else "B",
+            color=pick_color,
+            anchor=(0.5, 0.5),
+            fill=pg.mkBrush(0, 0, 0, 210),              # dark background
+            border=pg.mkPen(pick_color, width=1),        # coloured outline
+        )
+        badge.setFont(badge_font)
+        badge.setPos(x0 + w * 0.5, sp["depth"] + ROW_HEIGHT * 0.5)
+        badge.setZValue(Z_PICK + 1)
+        self.plot.addItem(badge)
+        setattr(self, f"_pick_label_{which}", badge)
+
         return rect
 
     def _clear_picks(self):
-        for attr in ("_pick_overlay_a", "_pick_overlay_b"):
+        for attr in ("_pick_overlay_a", "_pick_overlay_b",
+                     "_pick_label_a", "_pick_label_b"):
             o = getattr(self, attr, None)
             if o is not None:
                 try:
