@@ -229,6 +229,11 @@ QMenu::item:selected {{
 QMenu::item:disabled {{
     color: {text_disabled};
 }}
+QMenu::indicator {{
+    margin-left:15px;
+    width: 12px;
+    height: 12px;
+}}
 QMenu::right-arrow {{
     margin-right: 20px;
     width: 8px;

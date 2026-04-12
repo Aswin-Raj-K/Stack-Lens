@@ -746,6 +746,11 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self.act_sticky_hover.triggered.connect(self._toggle_sticky_hover)
         view_menu.addAction(self.act_sticky_hover)
 
+        self.act_grid = QtGui.QAction("Show Grid", self, checkable=True)
+        self.act_grid.setChecked(True)   # x-grid on by default (matches plot init)
+        self.act_grid.triggered.connect(self._toggle_grid)
+        view_menu.addAction(self.act_grid)
+
         self.act_cursors = QtGui.QAction("Measurement Cursors", self, checkable=True)
         self.act_cursors.setShortcut("Ctrl+M")
         self.act_cursors.triggered.connect(self._toggle_cursors)
@@ -1469,6 +1474,10 @@ class ProfilerWindow(QtWidgets.QMainWindow):
 
     def _toggle_minimap(self, checked):
         self.minimap.setVisible(checked)
+
+    def _toggle_grid(self, checked):
+        """View > Show Grid — toggle the x-axis grid on the flame chart."""
+        self.plot.showGrid(x=checked, y=False, alpha=0.25 if checked else 0)
 
     def _update_overflow_banner(self):
         if self.wrapped:
