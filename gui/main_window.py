@@ -10,7 +10,7 @@ _RECENT_MAX = 8
 import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from trace_io import export_csv, export_json, import_json
+from trace_io import export_csv, export_json
 
 from .axes import DepthAxis, UnitAxis
 from .call_graph_dock import CallGraphDock
@@ -33,6 +33,7 @@ from .theme import (
     SELECTION_FILL_ALPHA, configure_pyqtgraph, spinbox_qss, _ICONS,
     apply_theme,
 )
+from .toast_widget import ToastWidget
 from .top_n_dock import TopNSlowestDock
 
 
@@ -110,6 +111,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self._color_mode = "function"
 
         self._build_ui()
+        self._toast = ToastWidget(self)
         self._populate_plot()
         self._update_view_range()
         self._update_overflow_banner()
@@ -127,12 +129,15 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         # and some child widgets consume +/- too).
         self._install_pan_zoom_shortcuts()
 
-        # Restore theme preference from last session
-        saved_theme = self._load_settings().get("theme", "Dark")
+        # Restore session state (theme first, then unit/docks/visibility)
+        s = self._load_settings()
+        saved_theme = s.get("theme", "Dark")
         if saved_theme in THEMES and saved_theme != "Dark":
             self._on_theme_changed(saved_theme)
+        self._restore_session()
 
     def closeEvent(self, event):
+        self._save_session()
         if self._jlink is not None:
             try:
                 self._jlink.close()
@@ -456,6 +461,51 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         except Exception:
             pass
 
+    def _restore_session(self) -> None:
+        """Apply all persisted session state after the UI is fully built."""
+        import base64
+        s = self._load_settings()
+
+        # Display unit
+        saved_unit = s.get("unit", "ms")
+        if saved_unit != self.unit_label:
+            self._set_unit(saved_unit)
+
+        # Color mode
+        saved_mode = s.get("color_mode", "function")
+        if saved_mode != self._color_mode:
+            self._set_color_mode(saved_mode)
+
+        # Dock geometry — restoreState needs all docks already added to the window
+        dock_state_b64 = s.get("dock_state")
+        if dock_state_b64:
+            try:
+                raw_bytes = base64.b64decode(dock_state_b64.encode())
+                self.restoreState(QtCore.QByteArray(raw_bytes))
+            except Exception:
+                pass  # stale/corrupt state — silently ignore
+
+        # Hidden functions / markers (applied after spans are in the docks)
+        hidden_fns = s.get("hidden_functions", [])
+        if hidden_fns:
+            self.summary_dock.restore_hidden(hidden_fns)
+
+        hidden_marks = s.get("hidden_markers", [])
+        if hidden_marks:
+            self.marker_dock.restore_hidden(hidden_marks)
+
+    def _save_session(self) -> None:
+        """Persist all session state to the settings file."""
+        import base64
+        dock_b64 = base64.b64encode(bytes(self.saveState())).decode()
+        self._save_settings({
+            "unit":             self.unit_label,
+            "color_mode":       self._color_mode,
+            "dock_state":       dock_b64,
+            "hidden_functions": sorted(self.summary_dock.hidden_names()),
+            "hidden_markers":   sorted(self.marker_dock.hidden_names()),
+        })
+
     def _open_settings(self):
         import gui.theme as _theme_mod
         dlg = SettingsDialog(current_theme=_theme_mod.CURRENT_THEME_NAME, parent=self)
@@ -559,6 +609,11 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         act_export_csv = QtGui.QAction("Export as CSV...", self)
         act_export_csv.triggered.connect(self._export_csv)
         export_menu.addAction(act_export_csv)
+
+        act_export_image = QtGui.QAction("Export Image…", self)
+        act_export_image.setShortcut("Ctrl+Shift+E")
+        act_export_image.triggered.connect(self._export_image_dialog)
+        export_menu.addAction(act_export_image)
 
         file_menu.addSeparator()
 
@@ -984,6 +1039,114 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             QtWidgets.QMessageBox.warning(self, "Export failed", str(e))
 
+    def _export_image_dialog(self):
+        """File → Export → Export Image... — save the current chart view as PNG or SVG."""
+        hidden_fns   = sorted(self.summary_dock.hidden_names())
+        hidden_marks = sorted(self.marker_dock.hidden_names())
+        has_hidden   = bool(hidden_fns or hidden_marks)
+
+        path, selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Export Chart Image",
+            "profiler_view",
+            "PNG Image (*.png);;SVG Vector (*.svg)",
+        )
+        if not path:
+            return
+
+        is_svg = selected_filter.startswith("SVG") or path.lower().endswith(".svg")
+        if not path.lower().endswith((".png", ".svg")):
+            path += ".svg" if is_svg else ".png"
+
+        include_legend = False
+        if has_hidden:
+            reply = QtWidgets.QMessageBox.question(
+                self,
+                "Include hidden-items legend?",
+                f"You have {len(hidden_fns)} hidden function(s) and "
+                f"{len(hidden_marks)} hidden marker(s).\n\n"
+                "Add a legend to the exported image listing what was hidden?",
+                QtWidgets.QMessageBox.StandardButton.Yes
+                | QtWidgets.QMessageBox.StandardButton.No,
+            )
+            include_legend = (reply == QtWidgets.QMessageBox.StandardButton.Yes)
+
+        try:
+            self._export_image(path, is_svg, include_legend, hidden_fns, hidden_marks)
+            self.statusBar().showMessage(
+                f"Image exported to {os.path.basename(path)}", 4000
+            )
+        except Exception as e:
+            self._toast.show_message("Export failed", str(e), level="error")
+
+    def _export_image(self, path: str, as_svg: bool,
+                      include_legend: bool,
+                      hidden_fns: list, hidden_marks: list) -> None:
+        """Render and save the chart widget to *path* as PNG or SVG."""
+        from PySide6 import QtSvg
+
+        widget = self.plot_widget
+
+        if as_svg:
+            gen = QtSvg.QSvgGenerator()
+            gen.setFileName(path)
+            gen.setSize(widget.size())
+            gen.setViewBox(widget.rect())
+            gen.setTitle("CortexM0 Profiler — chart export")
+            painter = QtGui.QPainter(gen)
+            widget.render(painter)
+            if include_legend:
+                self._paint_hidden_legend(painter, widget.rect(), hidden_fns, hidden_marks)
+            painter.end()
+        else:
+            pixmap = widget.grab()
+            if include_legend:
+                painter = QtGui.QPainter(pixmap)
+                self._paint_hidden_legend(painter, pixmap.rect(), hidden_fns, hidden_marks)
+                painter.end()
+            if not pixmap.save(path, "PNG"):
+                raise OSError(f"Could not write PNG to {path}")
+
+    def _paint_hidden_legend(self, painter: QtGui.QPainter, bounds: QtCore.QRect,
+                              hidden_fns: list, hidden_marks: list) -> None:
+        """Draw a semi-transparent legend panel in the bottom-left of *bounds*."""
+        lines: list[str] = []
+        if hidden_fns:
+            lines.append(f"Hidden functions ({len(hidden_fns)}):")
+            for n in hidden_fns[:8]:
+                lines.append(f"  \u2022 {n}")
+            if len(hidden_fns) > 8:
+                lines.append(f"  \u2026 and {len(hidden_fns) - 8} more")
+        if hidden_marks:
+            if lines:
+                lines.append("")
+            lines.append(f"Hidden markers ({len(hidden_marks)}):")
+            for n in hidden_marks[:6]:
+                lines.append(f"  \u2022 {n}")
+            if len(hidden_marks) > 6:
+                lines.append(f"  \u2026 and {len(hidden_marks) - 6} more")
+        if not lines:
+            return
+
+        font = QtGui.QFont("Consolas", 9)
+        painter.setFont(font)
+        fm = QtGui.QFontMetrics(font)
+        line_h = fm.height() + 3
+        pad = 10
+        box_w = max(fm.horizontalAdvance(ln) for ln in lines) + pad * 2
+        box_h = len(lines) * line_h + pad * 2
+        x = pad
+        y = bounds.height() - box_h - pad
+
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        painter.setBrush(QtGui.QColor(0, 0, 0, 175))
+        painter.setPen(QtGui.QPen(QtGui.QColor("#666666"), 1))
+        painter.drawRoundedRect(QtCore.QRectF(x, y, box_w, box_h), 4, 4)
+
+        painter.setPen(QtGui.QColor("#dddddd"))
+        for i, line in enumerate(lines):
+            painter.drawText(x + pad, y + pad + i * line_h + fm.ascent(), line)
+
     # ── Open Trace / Recent ─────────────────────────────────────────
 
     def _connect_jlink_dialog(self):
@@ -1065,17 +1228,53 @@ class ProfilerWindow(QtWidgets.QMainWindow):
 
     def _open_trace(self, path):
         """Load a JSON trace file and install it as the current data."""
+        from trace_io import validate_trace
+
+        # Parse JSON
         try:
-            spans, marks, pause_regions, meta = import_json(path)
-        except Exception as e:
-            QtWidgets.QMessageBox.warning(
-                self, "Open Trace failed", f"Could not read {path}:\n{e}"
+            with open(path, "r") as f:
+                raw = json.load(f)
+        except json.JSONDecodeError as e:
+            self._toast.show_message(
+                "Invalid JSON",
+                f"{os.path.basename(path)}: {e}",
+                level="error",
+            )
+            return
+        except OSError as e:
+            self._toast.show_message("Cannot open file", str(e), level="error")
+            return
+
+        # Validate structure
+        issues  = validate_trace(raw)
+        fatal   = [s for s in issues if not s.startswith("Warning:")]
+        warnings = [s for s in issues if s.startswith("Warning:")]
+
+        if fatal:
+            self._toast.show_message(
+                "Trace validation failed",
+                "\n".join(fatal[:3]),
+                level="error",
             )
             return
 
+        if warnings:
+            self._toast.show_message(
+                "Trace loaded with warnings",
+                "\n".join(w.removeprefix("Warning: ") for w in warnings[:2]),
+                level="warning",
+            )
+
+        spans         = raw.get("spans", [])
+        marks         = raw.get("marks", [])
+        pause_regions = raw.get("pause_regions", [])
+        meta          = raw.get("metadata", {})
+
         if not spans and not marks:
-            QtWidgets.QMessageBox.information(
-                self, "Empty trace", f"{path} contains no spans or marks."
+            self._toast.show_message(
+                "Empty trace",
+                f"{os.path.basename(path)} contains no spans or marks.",
+                level="info",
             )
             return
 
@@ -1706,6 +1905,9 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         # can re-centre its panel on the new geometry.
         if getattr(self, "_shortcut_overlay", None) is not None:
             self._shortcut_overlay.setGeometry(self.rect())
+        # Keep the toast pinned to the bottom-right corner.
+        if getattr(self, "_toast", None) is not None and self._toast.isVisible():
+            self._toast._reposition()
 
     def _on_plot_clicked(self, ev):
         if not self._pick_mode:

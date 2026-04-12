@@ -231,6 +231,29 @@ class SummaryDock(DockBase):
     def hidden_names(self):
         return set(self._hidden)
 
+    def restore_hidden(self, names) -> None:
+        """Restore a saved hidden-function set (called on session load).
+
+        Updates checkboxes in the current table and emits visibility_changed
+        so the flame chart reacts immediately.
+        """
+        self._updating = True
+        try:
+            self._hidden = set(names)
+            for row in range(self._table.rowCount()):
+                it = self._table.item(row, 0)
+                if it is None:
+                    continue
+                name = it.data(_ROLE_NAME)
+                it.setCheckState(
+                    QtCore.Qt.CheckState.Unchecked
+                    if name in self._hidden
+                    else QtCore.Qt.CheckState.Checked
+                )
+        finally:
+            self._updating = False
+        self.visibility_changed.emit(set(self._hidden))
+
     # ── Search filter ───────────────────────────────────────────────
 
     def _on_search_changed(self, text):

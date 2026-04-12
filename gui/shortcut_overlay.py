@@ -41,6 +41,7 @@ SHORTCUT_ROWS = [
 
     ("File", None),
     ("Ctrl+O",              "Open trace…"),
+    ("Ctrl+Shift+E",        "Export chart as PNG / SVG"),
     ("F5",                  "Refresh"),
     ("Ctrl+Q",              "Quit"),
 
