@@ -245,6 +245,16 @@ QMenu::separator {{
     margin: 4px 8px;
 }}
 
+/* ── Dock resize handle (between docked panels and the central widget) ── */
+QMainWindow::separator {{
+    background: {border_normal};
+    width: 4px;
+    height: 4px;
+}}
+QMainWindow::separator:hover {{
+    background: {accent_primary};
+}}
+
 /* ── Toolbar separator ──────────────────────────────────────── */
 QToolBar::separator {{
     background: {interactive_ctrl_hover};
