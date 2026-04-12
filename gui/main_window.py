@@ -158,6 +158,95 @@ class _QuestionKeyFilter(QtCore.QObject):
         return False
 
 
+class CursorHandle(pg.GraphicsObject):
+    """Fixed-pixel-size grab tab drawn at the top of a measurement cursor line.
+
+    Positioned in data coordinates at (cursor.value(), viewRect.top()).
+    Painted in device (screen-pixel) coordinates so the tab never changes
+    visual size when the user zooms the time axis.
+    Dragging the tab moves the parent InfiniteLine horizontally.
+    """
+
+    _HW = 7   # half-width of the rectangle base, in pixels
+    _HR = 9   # height of the rectangle base, in pixels
+    _HT = 6   # height of the triangular tip, in pixels
+
+    def __init__(self, cursor: pg.InfiniteLine, color: str):
+        super().__init__()
+        self._cursor = cursor
+        self._brush = pg.mkBrush(color)
+        self._hover_brush = pg.mkBrush(QtGui.QColor(color).lighter(140))
+        self._pen = pg.mkPen(QtGui.QColor(color).darker(150), width=1)
+        self._hovered = False
+        self.setAcceptHoverEvents(True)
+        self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
+        self.setZValue(200)
+
+    def boundingRect(self) -> QtCore.QRectF:
+        vb = self.getViewBox()
+        if vb is None:
+            return QtCore.QRectF(-1, -0.1, 2, 0.5)
+        ps = vb.viewPixelSize()
+        if ps[0] is None or ps[0] == 0:
+            return QtCore.QRectF(-1, -0.1, 2, 0.5)
+        x_pp, y_pp = ps
+        hw = (self._HW + 2) * x_pp
+        hh = (self._HR + self._HT + 2) * abs(y_pp)
+        return QtCore.QRectF(-hw, 0, hw * 2, hh)
+
+    def shape(self) -> QtGui.QPainterPath:
+        p = QtGui.QPainterPath()
+        p.addRect(self.boundingRect())
+        return p
+
+    def paint(self, painter, option, widget=None):
+        # Map the item's origin (data position) to screen pixel coordinates.
+        # painter.transform() is the full item-local → device transform, so
+        # mapping (0, 0) gives the on-screen pixel position of this handle.
+        origin = painter.transform().map(QtCore.QPointF(0, 0))
+        painter.save()
+        painter.resetTransform()          # switch to raw device (pixel) coords
+        painter.translate(origin)         # move origin to handle's screen position
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        painter.setBrush(self._hover_brush if self._hovered else self._brush)
+        painter.setPen(self._pen)
+        hw, hr, ht = self._HW, self._HR, self._HT
+        # Rectangle base with a downward-pointing triangular tip
+        path = QtGui.QPainterPath()
+        path.moveTo(-hw, 0)
+        path.lineTo( hw, 0)
+        path.lineTo( hw, hr)
+        path.lineTo(  0, hr + ht)
+        path.lineTo(-hw, hr)
+        path.closeSubpath()
+        painter.drawPath(path)
+        painter.restore()
+
+    def hoverEvent(self, ev):
+        changed = False
+        if not ev.isExit():
+            if not self._hovered:
+                self._hovered = True
+                self.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+                changed = True
+        else:
+            if self._hovered:
+                self._hovered = False
+                self.unsetCursor()
+                changed = True
+        if changed:
+            self.update()
+
+    def mouseDragEvent(self, ev, axis=None):
+        if ev.button() != QtCore.Qt.MouseButton.LeftButton:
+            return
+        vb = self.getViewBox()
+        if vb:
+            x = vb.mapSceneToView(ev.scenePos()).x()
+            self._cursor.setPos(x)
+        ev.accept()
+
+
 # ── Main window ──────────────────────────────────────────────────────
 
 class ProfilerWindow(QtWidgets.QMainWindow):
@@ -410,18 +499,34 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         pen_b = pg.mkPen(THEME["pick_b"], width=2, style=QtCore.Qt.PenStyle.DashLine)
         self.cursor_a = pg.InfiniteLine(
             pos=0, angle=90, movable=True, pen=pen_a,
-            label="A", labelOpts={"position": 0.95, "color": THEME["pick_a"]},
+            label="A", labelOpts={"position": 0.05, "color": THEME["pick_a"]},
         )
         self.cursor_b = pg.InfiniteLine(
             pos=0, angle=90, movable=True, pen=pen_b,
-            label="B", labelOpts={"position": 0.95, "color": THEME["pick_b"]},
+            label="B", labelOpts={"position": 0.05, "color": THEME["pick_b"]},
         )
+        self.cursor_a.setHoverPen(pg.mkPen(THEME["pick_a"], width=4))
+        self.cursor_b.setHoverPen(pg.mkPen(THEME["pick_b"], width=4))
         self.cursor_a.sigPositionChanged.connect(self._on_cursors_moved)
         self.cursor_b.sigPositionChanged.connect(self._on_cursors_moved)
         self.cursor_a.setVisible(False)
         self.cursor_b.setVisible(False)
         self.plot.addItem(self.cursor_a)
         self.plot.addItem(self.cursor_b)
+
+        # Grab-tab handles — small coloured rectangles at the top of each cursor
+        self.cursor_handle_a = CursorHandle(self.cursor_a, THEME["pick_a"])
+        self.cursor_handle_b = CursorHandle(self.cursor_b, THEME["pick_b"])
+        self.cursor_handle_a.setVisible(False)
+        self.cursor_handle_b.setVisible(False)
+        self.plot.addItem(self.cursor_handle_a)
+        self.plot.addItem(self.cursor_handle_b)
+
+        # Keep handles pinned to viewport top when cursor or Y range changes
+        self.cursor_a.sigPositionChanged.connect(self._update_cursor_handle_pos)
+        self.cursor_b.sigPositionChanged.connect(self._update_cursor_handle_pos)
+        self.plot.getViewBox().sigYRangeChanged.connect(self._update_cursor_handle_pos)
+
         self.cursors_enabled = False
 
         # Scrollbar
@@ -1546,13 +1651,25 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             self.cursor_b.setPos(b)
         self.cursor_a.setVisible(checked)
         self.cursor_b.setVisible(checked)
+        self.cursor_handle_a.setVisible(checked)
+        self.cursor_handle_b.setVisible(checked)
         self.measure_label.setVisible(checked)
         if checked:
+            self._update_cursor_handle_pos()
             self._update_measure_label()
 
     def _on_cursors_moved(self):
         if self.cursors_enabled:
             self._update_measure_label()
+
+    def _update_cursor_handle_pos(self):
+        """Pin cursor handles to the top of the visible viewport."""
+        if not hasattr(self, "cursor_handle_a"):
+            return
+        vr = self.plot.getViewBox().viewRect()
+        y = vr.top()   # min data Y = visual top with invertY(True)
+        self.cursor_handle_a.setPos(self.cursor_a.value(), y)
+        self.cursor_handle_b.setPos(self.cursor_b.value(), y)
 
     def _update_measure_label(self):
         if not self.cursors_enabled:
