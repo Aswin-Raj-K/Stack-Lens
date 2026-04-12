@@ -2318,6 +2318,12 @@ class ProfilerWindow(QtWidgets.QMainWindow):
 
     def _find_span_at(self, depth, x_rel, y):
         """Locate a span under the cursor, accounting for thread + ISR lanes."""
+        # Hidden spans are not drawn, so they must not be hittable either.
+        hidden = (
+            self._flame_item._hidden
+            if hasattr(self, "_flame_item") and self._flame_item
+            else set()
+        )
         x_abs = x_rel + self.t_min
         # Thread lane hit: depth >= 0 and within ROW_HEIGHT of a depth row
         if depth >= 0 and (depth <= y <= depth + ROW_HEIGHT):
@@ -2326,21 +2332,21 @@ class ProfilerWindow(QtWidgets.QMainWindow):
                     continue
                 if sp["depth"] != depth:
                     continue
+                if sp["name"] in hidden:
+                    continue
                 if sp["start_us"] <= x_abs <= sp["end_us"]:
                     return sp
             return None
 
         # ISR lane hit: y negative. display_y = -(depth + 1) → depth_isr = -int(y)-1
         if y < 0:
-            isr_depth = -int(y + 1) - 0  # floor for negative y
-            # More precise: invert display_y = -(depth+1) so depth = -display_y - 1
-            # display_y in [-(d+1), -d) → depth d
-            # Easiest: iterate ISR spans and check geometry
             for sp in self.spans:
                 if sp.get("ipsr", 0) == 0:
                     continue
                 disp_y = -(sp["depth"] + 1)
                 if disp_y <= y <= disp_y + ROW_HEIGHT:
+                    if sp["name"] in hidden:
+                        continue
                     if sp["start_us"] <= x_abs <= sp["end_us"]:
                         return sp
         return None
