@@ -38,6 +38,7 @@ SHORTCUT_ROWS = [
     ("Ctrl+Shift+T",        "Call Tree dock"),
     ("Ctrl+Shift+K",        "Markers dock"),
     ("Ctrl+Shift+O",        "Top-N Slowest dock"),
+    ("Ctrl+Shift+B",        "Bookmarks dock"),
 
     ("File", None),
     ("Ctrl+O",              "Open trace…"),
@@ -46,6 +47,7 @@ SHORTCUT_ROWS = [
     ("Ctrl+Q",              "Quit"),
 
     ("Misc", None),
+    ("Ctrl+B",              "Pin current position as bookmark"),
     ("?",                   "Show this overlay"),
     ("Esc",                 "Cancel current mode / close overlay"),
 ]

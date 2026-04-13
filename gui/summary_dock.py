@@ -228,6 +228,18 @@ class SummaryDock(DockBase):
                 if isinstance(item, NumericSortItem):
                     item.setSortKey(float(raw))
 
+    def scroll_to_function(self, name: str) -> None:
+        """Clear search filter, select, and scroll to the row for *name*."""
+        # Clear any active filter so the row isn't hidden
+        if self._search_text:
+            self.search_edit.clear()
+        for row in range(self._table.rowCount()):
+            item = self._table.item(row, 1)
+            if item is not None and item.data(_ROLE_NAME) == name:
+                self._table.selectRow(row)
+                self._table.scrollToItem(item, QtWidgets.QAbstractItemView.ScrollHint.PositionAtCenter)
+                break
+
     def hidden_names(self):
         return set(self._hidden)
 

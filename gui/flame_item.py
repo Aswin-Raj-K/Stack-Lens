@@ -22,7 +22,8 @@ class FlameItem(pg.GraphicsObject):
                          so they appear ABOVE the thread lanes.
     """
 
-    def __init__(self, spans, color_map, t_min, color_mode="function", marks=None, pause_regions=None):
+    def __init__(self, spans, color_map, t_min, color_mode="function", marks=None, pause_regions=None,
+                 row_height=None, font_size=None):
         super().__init__()
         self._t_min = t_min
         self._color_mode = color_mode
@@ -30,9 +31,12 @@ class FlameItem(pg.GraphicsObject):
         self._hidden_marks = set()  # set of marker names to skip drawing
         self._highlighted_name = None
         self._pause_regions = []  # list of {x0, x1} (relative)
-        self._show_bar_labels = False  # toggled via View menu — off by default
+        self._show_bar_labels = False   # toggled via View menu — off by default
+        self._show_mark_labels = False  # toggled via View > Show Marker Names
         self._show_sticky_hover = False  # sticky top-left hover label
         self._sticky_text = ""
+        self._row_height = row_height if row_height is not None else ROW_HEIGHT
+        self._chart_font_size = font_size if font_size is not None else 8
 
         # Viridis normalization from durations
         durations = [sp["duration_us"] for sp in spans if sp["duration_us"] > 0]
@@ -100,6 +104,9 @@ class FlameItem(pg.GraphicsObject):
         self.set_marks(marks or [])
         self.set_pause_regions(pause_regions or [])
 
+        # User bookmarks — visible subset, in relative coords
+        self._bookmarks_vis: list[dict] = []
+
         # Bounds: full data extent
         x_max = max(
             (s["x1"] for lst in self._by_depth.values() for s in lst),
@@ -156,6 +163,37 @@ class FlameItem(pg.GraphicsObject):
         self._mark_x = [m["x"] for m in self._marks]
         self.update()
 
+    def set_bookmarks(self, bookmarks: list) -> None:
+        """Replace the visible bookmark list and trigger a redraw.
+
+        bm["t_us"] is already in item/plot coordinates (absolute_us - t_min),
+        the same space as span x0/x1.  Do NOT subtract _t_min again.
+        """
+        self._bookmarks_vis = [
+            {
+                "x":     bm["t_us"],
+                "depth": bm.get("depth", 0),
+                "name":  bm["name"],
+            }
+            for bm in bookmarks
+            if bm.get("visible", True)
+        ]
+        self.update()
+
+    def set_row_height(self, value: float) -> None:
+        """Change the row height (bar height in data units). Triggers a redraw."""
+        value = float(value)
+        if value != self._row_height:
+            self._row_height = value
+            self.update()
+
+    def set_chart_font_size(self, size: int) -> None:
+        """Change the font size for bar labels and bookmark labels."""
+        size = int(size)
+        if size != self._chart_font_size:
+            self._chart_font_size = size
+            self.update()
+
     def set_hidden_marks(self, names):
         """Set of marker names to hide from the chart."""
         self._hidden_marks = set(names)
@@ -174,6 +212,13 @@ class FlameItem(pg.GraphicsObject):
         enabled = bool(enabled)
         if self._show_bar_labels != enabled:
             self._show_bar_labels = enabled
+            self.update()
+
+    def set_show_mark_labels(self, enabled):
+        """Toggle rendering of marker names on the flame chart."""
+        enabled = bool(enabled)
+        if self._show_mark_labels != enabled:
+            self._show_mark_labels = enabled
             self.update()
 
     def set_show_sticky_hover(self, enabled):
@@ -303,7 +348,7 @@ class FlameItem(pg.GraphicsObject):
 
                 w = s["x1"] - s["x0"]
                 draw_w = max(w, min_data_w)
-                rect = QtCore.QRectF(s["x0"], depth, draw_w, ROW_HEIGHT)
+                rect = QtCore.QRectF(s["x0"], depth, draw_w, self._row_height)
 
                 if hl is not None and s["name"] != hl:
                     painter.fillRect(rect, s[dim_key])
@@ -358,15 +403,26 @@ class FlameItem(pg.GraphicsObject):
             i_lo = max(0, bisect_left(self._mark_x, x_lo - margin) - 1)
             i_hi = bisect_right(self._mark_x, x_hi + margin)
 
-            line_pen = QtGui.QPen(QtGui.QColor(THEME["status_mark"]))
+            line_pen = QtGui.QPen(QtGui.QColor(THEME["selection"]))
             line_pen.setWidth(2)
             line_pen.setCosmetic(True)  # 2 pixels regardless of zoom
             painter.setPen(line_pen)
 
-            mark_color = QtGui.QColor(THEME["status_mark"])
+            mark_color = QtGui.QColor(THEME["selection"])
             flag_height = 0.35  # data units, placed just below top_y
 
+            show_labels = self._show_mark_labels
+            lbl_font = QtGui.QFont("Segoe UI", self._chart_font_size) if show_labels else None
+            # Bottom anchor: clamp to visible bottom so labels stay on-screen.
+            lbl_anchor_y = min(bot_y, y_hi)
+
             hidden_marks = self._hidden_marks
+
+            # Pass 1 — lines + triangles (always drawn).
+            # Collect (x_px, y_base_px, label_text, label_width) for pass 2.
+            label_entries = [] if show_labels else None
+            fm = QtGui.QFontMetrics(lbl_font) if show_labels else None
+
             for i in range(i_lo, i_hi):
                 m = self._marks[i]
                 if m["name"] in hidden_marks:
@@ -374,10 +430,11 @@ class FlameItem(pg.GraphicsObject):
                 x = m["x"]
                 if x < x_lo - margin or x > x_hi + margin:
                     continue
-                # Vertical line through entire chart
+
+                # Vertical line
                 painter.drawLine(QtCore.QPointF(x, top_y), QtCore.QPointF(x, bot_y))
 
-                # Small filled triangle at the top for extra visibility
+                # Filled triangle flag at the top
                 tri = QtGui.QPolygonF([
                     QtCore.QPointF(x, top_y),
                     QtCore.QPointF(x - 0.3 / px_per_unit_x * 6, top_y - flag_height),
@@ -388,6 +445,97 @@ class FlameItem(pg.GraphicsObject):
                 painter.drawPolygon(tri)
                 painter.setPen(line_pen)
 
+                if show_labels:
+                    pt_px = t.map(QtCore.QPointF(x, lbl_anchor_y))
+                    label = "\U0001f6a9 " + m["name"]
+                    label_entries.append((pt_px.x(), pt_px.y(), label,
+                                          fm.horizontalAdvance(label)))
+
+            # Pass 2 — staggered labels.
+            # Each label is assigned to the first stagger level where it doesn't
+            # overlap the previous label at that level.  Labels fan upward so
+            # closely-spaced markers remain readable.
+            if show_labels and label_entries:
+                LINE_H   = fm.height() + 2   # vertical step per stagger level
+                MAX_LVL  = 5                 # cap stagger depth
+                PAD_PX   = 6                 # horizontal gap between labels
+                # rightmost pixel edge used so far at each level
+                lvl_right = [-9999.0] * MAX_LVL
+
+                painter.save()
+                painter.resetTransform()
+                painter.setFont(lbl_font)
+                painter.setPen(mark_color)
+
+                for x_px, y_base, label, w in label_entries:
+                    lx = x_px + 4
+                    # find lowest free level
+                    lvl = next((l for l in range(MAX_LVL) if lx >= lvl_right[l]),
+                               MAX_LVL - 1)
+                    lvl_right[lvl] = lx + w + PAD_PX
+                    painter.drawText(
+                        QtCore.QPointF(lx, y_base - 4 - lvl * LINE_H),
+                        label,
+                    )
+
+                painter.restore()
+                painter.setPen(line_pen)
+
+        # ── Bookmark markers ───────────────────────────────────────
+        if self._bookmarks_vis:
+            _top_y  = self._bounds.top()
+            _bot_y  = self._bounds.bottom()
+            _margin = 20.0 / px_per_unit_x
+            bm_color = QtGui.QColor(THEME["accent_checked_text"])
+            bm_pen   = QtGui.QPen(bm_color)
+            bm_pen.setWidth(1)
+            bm_pen.setCosmetic(True)
+            bm_pen.setStyle(QtCore.Qt.PenStyle.DashLine)
+            lbl_font = QtGui.QFont("Segoe UI", self._chart_font_size)
+
+            for bm in self._bookmarks_vis:
+                x = bm["x"]
+                if x < x_lo - _margin or x > x_hi + _margin:
+                    continue
+
+                # Full-height dashed vertical line
+                painter.setPen(bm_pen)
+                painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+                painter.drawLine(QtCore.QPointF(x, _top_y), QtCore.QPointF(x, _bot_y))
+
+                # Thick solid segment at the bookmarked depth row
+                thick_pen = QtGui.QPen(bm_color)
+                thick_pen.setWidth(3)
+                thick_pen.setCosmetic(True)
+                row_top = float(bm["depth"])
+                row_bot = row_top + self._row_height
+                # I-beam: cap half-width = 5 px converted to data units
+                cap_hw = 5.0 / (abs(t.m11()) or 1.0)
+                painter.setPen(thick_pen)
+                painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+                # Vertical stem
+                painter.drawLine(QtCore.QPointF(x, row_top), QtCore.QPointF(x, row_bot))
+                # Top cap
+                painter.drawLine(QtCore.QPointF(x - cap_hw, row_top), QtCore.QPointF(x + cap_hw, row_top))
+                # Bottom cap
+                painter.drawLine(QtCore.QPointF(x - cap_hw, row_bot), QtCore.QPointF(x + cap_hw, row_bot))
+                painter.setPen(bm_pen)   # restore dashed pen
+
+                # 🔖 label — anchored to max(bounds_top, visible_top) so it
+                # stays on-screen even when bounds extend above the viewport.
+                lbl_anchor_y = max(_top_y, y_lo)
+                pt_px = t.map(QtCore.QPointF(x, lbl_anchor_y))
+                painter.save()
+                painter.resetTransform()
+                painter.setFont(lbl_font)
+                painter.setPen(bm_color)
+                painter.drawText(
+                    QtCore.QPointF(pt_px.x() + 4, pt_px.y() + 13),
+                    "\U0001f516 " + bm["name"],
+                )
+                painter.restore()
+                painter.setPen(bm_pen)
+
         # ── Bar labels pass (elided function names) ────────────────
         # Toggled via View > Show Function Names on Bars. Off by default.
         if self._show_bar_labels:
@@ -397,7 +545,7 @@ class FlameItem(pg.GraphicsObject):
             painter.save()
             painter.resetTransform()
             painter.setPen(QtGui.QColor(THEME["text_white"]))
-            label_font = QtGui.QFont("Segoe UI", 8)
+            label_font = QtGui.QFont("Segoe UI", self._chart_font_size)
             painter.setFont(label_font)
             fm = painter.fontMetrics()
             label_align = (
@@ -430,7 +578,7 @@ class FlameItem(pg.GraphicsObject):
                     # Map the bar rect to screen coordinates using the
                     # previously-captured transform `t`
                     top_left = t.map(QtCore.QPointF(s["x0"], depth))
-                    bot_right = t.map(QtCore.QPointF(s["x1"], depth + ROW_HEIGHT))
+                    bot_right = t.map(QtCore.QPointF(s["x1"], depth + self._row_height))
                     text_width_px = bot_right.x() - top_left.x() - 2 * TEXT_PAD_PX
                     if text_width_px < MIN_LABEL_PX - 2 * TEXT_PAD_PX:
                         continue

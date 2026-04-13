@@ -145,7 +145,7 @@ class MarkerDock(DockBase):
 
                 # Name column — use mark color
                 name_item = QtWidgets.QTableWidgetItem(name)
-                name_item.setForeground(QtGui.QColor(THEME["status_mark"]))
+                name_item.setForeground(QtGui.QColor(THEME["selection"]))
                 name_item.setData(_ROLE_NAME, name)
                 table.setItem(row, 1, name_item)
 

@@ -1,0 +1,198 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" overflow="visible">
+  <defs>
+
+    <!-- ── Background ── -->
+    <radialGradient id="bgGrad" cx="38%" cy="30%" r="78%">
+      <stop offset="0%"   stop-color="#131a40"/>
+      <stop offset="100%" stop-color="#060a18"/>
+    </radialGradient>
+    <radialGradient id="bgAccent" cx="78%" cy="18%" r="42%">
+      <stop offset="0%"   stop-color="#1c2f70" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#1c2f70" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- ── Layer fills ── -->
+    <linearGradient id="blueG" x1="10%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%"   stop-color="#65d0ff"/>
+      <stop offset="100%" stop-color="#0a58d8"/>
+    </linearGradient>
+    <linearGradient id="tealG" x1="10%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%"   stop-color="#18eecf"/>
+      <stop offset="100%" stop-color="#047878"/>
+    </linearGradient>
+    <linearGradient id="violetG" x1="10%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%"   stop-color="#bb58ff"/>
+      <stop offset="100%" stop-color="#5012b8"/>
+    </linearGradient>
+
+    <!-- ── Lens optics ── -->
+    <radialGradient id="lensG" cx="30%" cy="24%" r="72%">
+      <stop offset="0%"   stop-color="#eaf7ff" stop-opacity="0.96"/>
+      <stop offset="48%"  stop-color="#b0d6f0" stop-opacity="0.50"/>
+      <stop offset="100%" stop-color="#5080c8" stop-opacity="0.08"/>
+    </radialGradient>
+
+    <!-- ── Rim (metallic chrome) ── -->
+    <linearGradient id="rimG" x1="12%" y1="4%" x2="88%" y2="96%">
+      <stop offset="0%"   stop-color="#6878a0"/>
+      <stop offset="38%"  stop-color="#1c2445"/>
+      <stop offset="62%"  stop-color="#1a2040"/>
+      <stop offset="100%" stop-color="#566090"/>
+    </linearGradient>
+    <linearGradient id="rimHighG" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#9aaac8" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#9aaac8" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- ── Handle ── -->
+    <linearGradient id="handleG" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#525a82"/>
+      <stop offset="100%" stop-color="#0e1425"/>
+    </linearGradient>
+
+    <!-- ── Filters ── -->
+    <filter id="layerShad" x="-6%" y="-6%" width="118%" height="145%">
+      <feDropShadow dx="0" dy="11" stdDeviation="14"
+                    flood-color="#000000" flood-opacity="0.62"/>
+    </filter>
+    <filter id="topGlow" x="-12%" y="-12%" width="124%" height="136%">
+      <feDropShadow dx="0" dy="2" stdDeviation="11"
+                    flood-color="#1878ff" flood-opacity="0.50"/>
+    </filter>
+    <filter id="lensGlow" x="-55%" y="-55%" width="210%" height="210%">
+      <feDropShadow dx="0" dy="0" stdDeviation="20"
+                    flood-color="#42a8ff" flood-opacity="0.52"/>
+    </filter>
+
+    <!-- ── Clip paths for data bars ── -->
+    <clipPath id="clipB">
+      <polygon points="238,58 418,154 238,250 58,154"/>
+    </clipPath>
+    <clipPath id="clipT">
+      <polygon points="238,156 418,252 238,348 58,252"/>
+    </clipPath>
+    <clipPath id="clipV">
+      <polygon points="238,254 418,350 238,446 58,350"/>
+    </clipPath>
+    <!-- Clip for lens interior -->
+    <clipPath id="clipLens">
+      <circle cx="392" cy="118" r="74"/>
+    </clipPath>
+
+  </defs>
+
+
+
+
+  <!-- ══ VIOLET LAYER — bottom ══ -->
+  <polygon points="58,350 238,446 238,484 58,388"   fill="#360c90"/>
+  <polygon points="238,446 418,350 418,388 238,484" fill="#5218b8"/>
+  <polygon points="238,254 418,350 238,446 58,350"
+           fill="url(#violetG)" filter="url(#layerShad)"/>
+  <polyline points="58,350 238,254 418,350"
+            fill="none" stroke="#cc8aff" stroke-width="2.5"
+            stroke-linejoin="round" stroke-linecap="round" opacity="0.60"/>
+  <g clip-path="url(#clipV)" opacity="0.52">
+    <rect x="163" y="308" width="150" height="8" rx="4" fill="white"/>
+    <rect x="180" y="324" width="88"  height="8" rx="4" fill="white"/>
+    <rect x="150" y="340" width="178" height="8" rx="4" fill="white"/>
+  </g>
+
+  <!-- ══ TEAL LAYER — middle ══ -->
+  <polygon points="58,252 238,348 238,386 58,290"   fill="#034444"/>
+  <polygon points="238,348 418,252 418,290 238,386" fill="#057070"/>
+  <polygon points="238,156 418,252 238,348 58,252"
+           fill="url(#tealG)" filter="url(#layerShad)"/>
+  <polyline points="58,252 238,156 418,252"
+            fill="none" stroke="#68ffe0" stroke-width="2.5"
+            stroke-linejoin="round" stroke-linecap="round" opacity="0.60"/>
+  <g clip-path="url(#clipT)" opacity="0.52">
+    <rect x="163" y="210" width="60"  height="8" rx="4" fill="white"/>
+    <rect x="180" y="226" width="118" height="8" rx="4" fill="white"/>
+    <rect x="150" y="242" width="82"  height="8" rx="4" fill="white"/>
+  </g>
+
+  <!-- ══ BLUE LAYER — top ══ -->
+  <polygon points="58,154 238,250 238,288 58,192"   fill="#072888"/>
+  <polygon points="238,250 418,154 418,192 238,288" fill="#1050c0"/>
+  <polygon points="238,58 418,154 238,250 58,154"
+           fill="url(#blueG)" filter="url(#topGlow)"/>
+  <polyline points="58,154 238,58 418,154"
+            fill="none" stroke="#aaeeff" stroke-width="2.5"
+            stroke-linejoin="round" stroke-linecap="round" opacity="0.72"/>
+  <g clip-path="url(#clipB)" opacity="0.52">
+    <rect x="163" y="113" width="108" height="8" rx="4" fill="white"/>
+    <rect x="180" y="129" width="150" height="8" rx="4" fill="white"/>
+    <rect x="150" y="145" width="58"  height="8" rx="4" fill="white"/>
+  </g>
+
+  <!-- ══ MAGNIFYING GLASS ══ -->
+
+  <!-- Handle — dark underlay + gradient body + highlight -->
+  <line x1="450" y1="180" x2="490" y2="224"
+        stroke="#040810" stroke-width="38" stroke-linecap="round"/>
+  <line x1="450" y1="180" x2="490" y2="224"
+        stroke="url(#handleG)" stroke-width="28" stroke-linecap="round"/>
+  <line x1="449" y1="180" x2="488" y2="222"
+        stroke="#808cb8" stroke-width="9" stroke-linecap="round" opacity="0.48"/>
+
+  <!-- Outer blue glow -->
+  <circle cx="392" cy="118" r="98"
+          fill="none" stroke="#48aaff" stroke-width="2" opacity="0.18"
+          filter="url(#lensGlow)"/>
+
+  <!-- Rim drop shadow -->
+  <circle cx="392" cy="122" r="86" fill="#020508" opacity="0.72"/>
+
+  <!-- Rim body (metallic) -->
+  <circle cx="392" cy="118" r="86" fill="url(#rimG)"/>
+
+  <!-- Rim top-left sheen -->
+  <circle cx="392" cy="118" r="86"
+          fill="none" stroke="url(#rimHighG)" stroke-width="6"/>
+
+  <!-- Inner rim bevel line -->
+  <circle cx="392" cy="118" r="77"
+          fill="none" stroke="#505878" stroke-width="1.5" opacity="0.65"/>
+
+  <!-- Lens glass fill -->
+  <circle cx="392" cy="118" r="74" fill="url(#lensG)"/>
+
+  <!-- ── Lens interior: cross-section of all 3 stack layers ── -->
+  <g clip-path="url(#clipLens)">
+    <!-- Subtle dark vignette at edges -->
+    <radialGradient id="lensVig" cx="50%" cy="50%" r="50%">
+      <stop offset="70%" stop-color="#000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0.22"/>
+    </radialGradient>
+
+    <!-- Blue band (top) -->
+    <rect x="318" y="90"  width="148" height="24" rx="4" fill="#0d55cc" opacity="0.30"/>
+    <rect x="330" y="96"  width="105" height="10" rx="5" fill="#3090ff" opacity="0.85"/>
+
+    <!-- Band divider -->
+    <line x1="318" y1="116" x2="466" y2="116" stroke="white" stroke-width="0.8" opacity="0.25"/>
+
+    <!-- Teal band (middle) -->
+    <rect x="318" y="116" width="148" height="24" rx="4" fill="#008066" opacity="0.30"/>
+    <rect x="330" y="122" width="68"  height="10" rx="5" fill="#18d8a8" opacity="0.85"/>
+
+    <!-- Band divider -->
+    <line x1="318" y1="142" x2="466" y2="142" stroke="white" stroke-width="0.8" opacity="0.25"/>
+
+    <!-- Violet band (bottom) -->
+    <rect x="318" y="142" width="148" height="24" rx="4" fill="#5010aa" opacity="0.30"/>
+    <rect x="330" y="148" width="112" height="10" rx="5" fill="#9040e0" opacity="0.85"/>
+
+    <!-- Vignette overlay -->
+    <circle cx="392" cy="118" r="74" fill="url(#lensVig)"/>
+  </g>
+
+  <!-- Lens primary sheen (top-left) -->
+  <ellipse cx="366" cy="93" rx="27" ry="14"
+           fill="white" opacity="0.64" transform="rotate(-36 366 93)"/>
+  <!-- Secondary sheen (lower-right, subtle) -->
+  <ellipse cx="412" cy="140" rx="12" ry="6"
+           fill="white" opacity="0.25" transform="rotate(-36 412 140)"/>
+
+</svg>

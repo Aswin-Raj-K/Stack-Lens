@@ -13,10 +13,11 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from trace_io import export_csv, export_json
 
 from .axes import DepthAxis, UnitAxis
+from .bookmark_dock import BookmarkDock
 from .call_graph_dock import CallGraphDock
 from .call_tree_dock import CallTreeDock
 from .color_bar import ColorBarWidget
-from .constants import COLORS, DEFAULT_WINDOW_US, ROW_HEIGHT, build_dark_stylesheet, build_stylesheet
+from .constants import COLORS, DEFAULT_WINDOW_US, PALETTES, ROW_HEIGHT, build_dark_stylesheet, build_stylesheet
 from .cursor_handle import CursorHandle
 from .dock_title_bar import DockTitleBar
 from .event_filters import _QuestionKeyFilter, _ZoomKeyFilter
@@ -63,7 +64,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self.cpu_mhz = cpu_mhz
         self._jlink = None  # live J-Link handle; closed on reconnect or window close
 
-        self.setWindowTitle("Cortex-M Function Profiler")
+        self.setWindowTitle("Stack Lens")
         self.resize(1500, 900)
 
         # Data extents (always stored internally in microseconds)
@@ -96,6 +97,9 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self._select_start_x = None
         self._select_overlay = None
 
+        # Bookmark pick mode
+        self._bookmark_pick_mode = False
+
         # Iterator cursor for "jump to next occurrence" — tracks the last
         # function/marker the user clicked and the current index into its
         # occurrence list. Shared by summary dock, Find combobox, and marker
@@ -109,6 +113,13 @@ class ProfilerWindow(QtWidgets.QMainWindow):
 
         # Color mode
         self._color_mode = "function"
+
+        # Chart display settings (defaults; overridden by _restore_session)
+        self._row_height_setting: float = 0.85
+        self._font_size_setting:  int   = 8
+        self._palette_name:       str   = "Default"
+        self._ts_decimals:        int   = 3
+        self._bookmark_snap:      bool  = False
 
         self._build_ui()
         self._toast = ToastWidget(self)
@@ -331,13 +342,29 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self.scrollbar.valueChanged.connect(self._on_scroll)
         layout.addWidget(self.scrollbar)
 
-        # Hover details bar
+        # Hover details bar (with bookmark toggle pinned to the right)
         self.hover_label = QtWidgets.QLabel("Hover over a bar to see details")
         self.hover_label.setStyleSheet(
-            f"background:{THEME['bg_raised']}; color:{THEME['text_primary']};"
-            "padding:6px; border-radius:4px;"
+            f"color:{THEME['text_primary']}; padding:6px;"
         )
-        layout.addWidget(self.hover_label)
+        self._bm_status_btn = QtWidgets.QToolButton()
+        self._bm_status_btn.setText("\U0001f516")
+        self._bm_status_btn.setToolTip("Bookmarks  (toggle dock)")
+        self._bm_status_btn.setObjectName("HoverBarBtn")
+        self._bm_status_btn.setCheckable(True)
+        self._bm_status_btn.setAutoRaise(False)
+        self._bm_status_btn.clicked.connect(self._on_bm_btn_clicked)
+        hover_row = QtWidgets.QWidget()
+        hover_row.setObjectName("HoverRow")
+        hover_row.setStyleSheet(
+            f"QWidget#HoverRow {{ background:{THEME['bg_raised']}; border-radius:4px; }}"
+        )
+        hover_row_layout = QtWidgets.QHBoxLayout(hover_row)
+        hover_row_layout.setContentsMargins(0, 0, 0, 0)
+        hover_row_layout.setSpacing(0)
+        hover_row_layout.addWidget(self.hover_label, 1)
+        hover_row_layout.addWidget(self._bm_status_btn)
+        layout.addWidget(hover_row)
 
         # Cursor measurement bar
         self.measure_label = QtWidgets.QLabel()
@@ -367,11 +394,13 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self._mode_label.setObjectName("ModeBadge")
         self._mode_label.setVisible(False)
         self.statusBar().addPermanentWidget(self._mode_label)
+
         self.statusBar().setSizeGripEnabled(False)
         self._update_status_bar()
 
         # Summary dock (bottom)
         self.summary_dock = SummaryDock(self.spans, self.color_map, self)
+        self.summary_dock.setObjectName("dock_summary")
         self.summary_dock.setTitleBarWidget(DockTitleBar(self.summary_dock))
         self.summary_dock.function_clicked.connect(self._jump_to_function_name)
         self.summary_dock.visibility_changed.connect(self._on_visibility_changed)
@@ -381,6 +410,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
 
         # Call-tree dock (bottom, tabbed with summary)
         self.call_tree_dock = CallTreeDock(self.spans, self.color_map, self.total_us, self)
+        self.call_tree_dock.setObjectName("dock_call_tree")
         self.call_tree_dock.setTitleBarWidget(DockTitleBar(self.call_tree_dock))
         self.call_tree_dock.function_clicked.connect(self._jump_to_function_name)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.call_tree_dock)
@@ -388,6 +418,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
 
         # Call-graph dock (bottom, tabbed with call tree)
         self.call_graph_dock = CallGraphDock(self.spans, self.color_map, self)
+        self.call_graph_dock.setObjectName("dock_call_graph")
         self.call_graph_dock.setTitleBarWidget(DockTitleBar(self.call_graph_dock))
         self.call_graph_dock.function_clicked.connect(self._jump_to_function_name)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.call_graph_dock)
@@ -395,6 +426,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
 
         # Markers dock (bottom, tabbed with summary + call tree)
         self.marker_dock = MarkerDock(self.marks, self)
+        self.marker_dock.setObjectName("dock_markers")
         self.marker_dock.setTitleBarWidget(DockTitleBar(self.marker_dock))
         self.marker_dock.mark_clicked.connect(self._jump_to_mark_name)
         self.marker_dock.visibility_changed.connect(self._on_mark_visibility_changed)
@@ -404,6 +436,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
 
         # Top-N slowest calls dock (bottom, tabbed)
         self.top_n_dock = TopNSlowestDock(self.spans, self.color_map, self)
+        self.top_n_dock.setObjectName("dock_top_n")
         self.top_n_dock.setTitleBarWidget(DockTitleBar(self.top_n_dock))
         self.top_n_dock.span_clicked.connect(self._jump_to_span_instance)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.top_n_dock)
@@ -414,10 +447,26 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self.ribbon_dock = RibbonDock(
             self.spans, self.color_map, self.t_min, self.total_us, self,
         )
+        self.ribbon_dock.setObjectName("dock_ribbon")
         self.ribbon_dock.setTitleBarWidget(DockTitleBar(self.ribbon_dock))
         self.ribbon_dock.tick_clicked.connect(self._on_ribbon_tick_clicked)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.ribbon_dock)
         self.tabifyDockWidget(self.summary_dock, self.ribbon_dock)
+
+        # Bookmark dock — starts hidden; shown via Ctrl+Shift+B or Panels menu
+        self.bookmark_dock = BookmarkDock(parent=self)
+        self.bookmark_dock.setObjectName("dock_bookmarks")
+        self.bookmark_dock.setTitleBarWidget(DockTitleBar(self.bookmark_dock))
+        self.bookmark_dock.activated.connect(self._on_bookmark_activated)
+        self.bookmark_dock.save_bookmark_requested.connect(self._save_current_bookmark)
+        self.bookmark_dock.bookmarks_changed.connect(
+            lambda bms: self._save_settings({"bookmarks": bms})
+        )
+        self.bookmark_dock.bookmarks_changed.connect(self._sync_bookmark_lines)
+        self.bookmark_dock.pick_position_requested.connect(self._toggle_bookmark_pick)
+        self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.bookmark_dock)
+        self.bookmark_dock.hide()
+        self.bookmark_dock.visibilityChanged.connect(self._on_bookmark_visibility_changed)
 
         self.summary_dock.raise_()
 
@@ -476,6 +525,31 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         if saved_mode != self._color_mode:
             self._set_color_mode(saved_mode)
 
+        # Chart display settings
+        self._palette_name       = s.get("palette",       "Default")
+        self._row_height_setting = float(s.get("row_height",    0.85))
+        self._font_size_setting  = int(s.get("font_size",     8))
+        self._ts_decimals        = int(s.get("ts_decimals",   3))
+        self._bookmark_snap      = bool(s.get("bookmark_snap", False))
+        # Apply timestamp decimals to toolbar spinboxes immediately
+        self.window_spin.setDecimals(self._ts_decimals)
+        self.jump_spin.setDecimals(self._ts_decimals)
+        # Rebuild color map with saved palette if it differs from default
+        if self._palette_name != "Default":
+            palette_colors = PALETTES.get(self._palette_name, COLORS)
+            self.color_map.clear()
+            used: set[str] = set()
+            for i, name in enumerate(self.func_names):
+                for j in range(len(palette_colors)):
+                    candidate = palette_colors[(i + j) % len(palette_colors)]
+                    if candidate not in used:
+                        self.color_map[name] = candidate
+                        used.add(candidate)
+                        break
+                else:
+                    self.color_map[name] = palette_colors[i % len(palette_colors)]
+            self._populate_plot()
+
         # Dock geometry — restoreState needs all docks already added to the window
         dock_state_b64 = s.get("dock_state")
         if dock_state_b64:
@@ -494,6 +568,11 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         if hidden_marks:
             self.marker_dock.restore_hidden(hidden_marks)
 
+        saved_bms = s.get("bookmarks", [])
+        if saved_bms:
+            self.bookmark_dock.load_bookmarks(saved_bms)
+            self._sync_bookmark_lines(self.bookmark_dock.get_bookmarks())
+
     def _save_session(self) -> None:
         """Persist all session state to the settings file."""
         import base64
@@ -504,12 +583,136 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             "dock_state":       dock_b64,
             "hidden_functions": sorted(self.summary_dock.hidden_names()),
             "hidden_markers":   sorted(self.marker_dock.hidden_names()),
+            "bookmarks":        self.bookmark_dock.get_bookmarks(),
+            "palette":          self._palette_name,
+            "row_height":       self._row_height_setting,
+            "font_size":        self._font_size_setting,
+            "ts_decimals":      self._ts_decimals,
+            "bookmark_snap":    self._bookmark_snap,
         })
+
+    def _save_current_bookmark(self):
+        """Pin the centre of the current view as a named bookmark (Ctrl+B)."""
+        t_us = self.view_start + self.window_us / 2
+        self.bookmark_dock.save_bookmark(t_us, depth=0)
+
+    def _on_bookmark_activated(self, t_us: float):
+        """Centre the view on *t_us*, keeping the current zoom level."""
+        self.view_start = t_us - self.window_us / 2
+        self._update_view_range()
+        self.window_spin.blockSignals(True)
+        self.window_spin.setValue(self.window_us * self.unit_scale)
+        self.window_spin.blockSignals(False)
+
+    def _on_bm_btn_clicked(self, checked: bool) -> None:
+        """Button click: show or hide the bookmark dock.
+
+        setVisible(True) on a tabified QDockWidget emits visibilityChanged(False)
+        first (tab is inserted but is not yet the active tab), then
+        visibilityChanged(True) once the tab is raised.  If we let those signals
+        reach _on_bookmark_visibility_changed while the click is still being
+        processed, the False signal unchecks the button before the True signal
+        corrects it — leaving state that causes a second click to be needed.
+
+        Blocking the dock's signals during the setVisible+raise_() call prevents
+        any intermediate visibilityChanged from interfering.  We then set the
+        button state directly and trigger the relayout when needed.
+        """
+        blocker = QtCore.QSignalBlocker(self.bookmark_dock)
+        self.bookmark_dock.setVisible(checked)
+        if checked:
+            self.bookmark_dock.raise_()
+        del blocker          # unblock — future tab-switching signals work normally
+        self._bm_status_btn.setChecked(checked)
+        if checked:
+            QtCore.QTimer.singleShot(0, self._relayout_dock_tabs)
+
+    def _on_bookmark_visibility_changed(self, visible: bool) -> None:
+        """Sync button when the user switches tabs by clicking the tab bar directly."""
+        self._bm_status_btn.setChecked(visible)
+
+    def _relayout_dock_tabs(self) -> None:
+        """Re-elide tab text on the bottom dock tab bar after a dock is shown.
+
+        When a tabified QDockWidget becomes visible Qt re-inserts its tab and
+        calls QTabBarPrivate::layoutTabs() immediately — before the tab bar has
+        received its final geometry from the main-window layout pass.  The text
+        is elided with a stale width and stays wrong because the tab bar's size
+        does not change afterwards (it already spanned the full width), so no
+        resizeEvent arrives to correct it.
+
+        QTabBar::setTabText() calls QTabBarPrivate::refresh() → layoutTabs()
+        unconditionally regardless of whether the text changed.  We call it on
+        the first tab we find that belongs to our bottom dock group, which
+        forces a correct second layout pass with the settled geometry.
+
+        We match by known window titles so we never touch PyQtGraph's internal
+        tab bars, which have uninitialised font sizes and would produce
+        "QFont::setPointSize: Point size <= 0" warnings if disturbed.
+        """
+        known = {
+            self.summary_dock.windowTitle(),
+            self.top_n_dock.windowTitle(),
+            self.ribbon_dock.windowTitle(),
+            self.call_tree_dock.windowTitle(),
+            self.call_graph_dock.windowTitle(),
+            self.bookmark_dock.windowTitle(),
+        }
+        for tab_bar in self.findChildren(QtWidgets.QTabBar):
+            for i in range(tab_bar.count()):
+                if tab_bar.tabText(i) in known:
+                    tab_bar.setTabText(i, tab_bar.tabText(i))
+                    return
+
+    def _sync_bookmark_lines(self, bookmarks: list) -> None:
+        """Push bookmark data to the flame chart for rendering."""
+        if hasattr(self, "_flame_item") and self._flame_item is not None:
+            self._flame_item.set_bookmarks(bookmarks)
+
+    def _depth_from_event(self, event) -> int:
+        """Map a QMouseEvent position to a depth (Y-axis row index)."""
+        vb = self.plot.getViewBox()
+        try:
+            scene_pt = self.plot_widget.mapToScene(event.position().toPoint())
+        except AttributeError:
+            scene_pt = self.plot_widget.mapToScene(event.pos())
+        y = vb.mapSceneToView(scene_pt).y()
+        return max(0, int(y))
+
+    def _toggle_bookmark_pick(self, on=None) -> None:
+        if on is None:
+            on = not self._bookmark_pick_mode
+        self._bookmark_pick_mode = on
+        if on:
+            self.plot_widget.setCursor(QtCore.Qt.CursorShape.CrossCursor)
+            self.statusBar().showMessage(
+                "Click on the chart to place a bookmark.  Esc to cancel."
+            )
+            self._mode_label.setText("BOOKMARK PICK")
+            self._mode_label.setVisible(True)
+        else:
+            self._bookmark_pick_mode = False
+            self.plot_widget.unsetCursor()
+            self._update_status_bar()
+            self._mode_label.setText("")
+            self._mode_label.setVisible(False)
 
     def _open_settings(self):
         import gui.theme as _theme_mod
-        dlg = SettingsDialog(current_theme=_theme_mod.CURRENT_THEME_NAME, parent=self)
+        current = {
+            "palette":       self._palette_name,
+            "row_height":    self._row_height_setting,
+            "font_size":     self._font_size_setting,
+            "ts_decimals":   self._ts_decimals,
+            "bookmark_snap": self._bookmark_snap,
+        }
+        dlg = SettingsDialog(
+            current_theme=_theme_mod.CURRENT_THEME_NAME,
+            current_settings=current,
+            parent=self,
+        )
         dlg.theme_changed.connect(self._on_theme_changed)
+        dlg.settings_applied.connect(self._on_settings_applied)
         dlg.exec()
 
     def _on_theme_changed(self, name: str) -> None:
@@ -578,6 +781,73 @@ class ProfilerWindow(QtWidgets.QMainWindow):
 
         # 6. Persist
         self._save_settings({"theme": name})
+
+    def _on_settings_applied(self, s: dict) -> None:
+        """Handle settings_applied signal from SettingsDialog."""
+        changed_palette   = s.get("palette", "Default")        != self._palette_name
+        changed_row_h     = s.get("row_height", 0.85)          != self._row_height_setting
+        changed_font      = s.get("font_size", 8)              != self._font_size_setting
+        changed_decimals  = s.get("ts_decimals", 3)            != self._ts_decimals
+
+        self._palette_name       = s.get("palette",       "Default")
+        self._row_height_setting = s.get("row_height",    0.85)
+        self._font_size_setting  = s.get("font_size",     8)
+        self._ts_decimals        = s.get("ts_decimals",   3)
+        self._bookmark_snap      = s.get("bookmark_snap", False)
+
+        # Apply row height / font size live to the existing flame item
+        if hasattr(self, "_flame_item") and self._flame_item is not None:
+            if changed_row_h:
+                self._flame_item.set_row_height(self._row_height_setting)
+            if changed_font:
+                self._flame_item.set_chart_font_size(self._font_size_setting)
+
+        # Color palette change: reset color map and rebuild flame item
+        if changed_palette:
+            palette_colors = PALETTES.get(self._palette_name, COLORS)
+            self.color_map.clear()
+            # Rebuild color assignments with the new palette
+            used: set[str] = set()
+            for i, name in enumerate(self.func_names):
+                for j in range(len(palette_colors)):
+                    candidate = palette_colors[(i + j) % len(palette_colors)]
+                    if candidate not in used:
+                        self.color_map[name] = candidate
+                        used.add(candidate)
+                        break
+                else:
+                    self.color_map[name] = palette_colors[i % len(palette_colors)]
+            self._populate_plot()
+
+        # Timestamp decimals: update toolbar spinboxes
+        if changed_decimals:
+            dec = self._ts_decimals
+            self.window_spin.setDecimals(dec)
+            self.jump_spin.setDecimals(dec)
+
+        self._save_settings({
+            "palette":       self._palette_name,
+            "row_height":    self._row_height_setting,
+            "font_size":     self._font_size_setting,
+            "ts_decimals":   self._ts_decimals,
+            "bookmark_snap": self._bookmark_snap,
+        })
+
+    def _snap_to_span_edge(self, t_us: float, depth: int) -> float:
+        """Return t_us snapped to the nearest span start/end at *depth*."""
+        if not self._bookmark_snap:
+            return t_us
+        best_t = t_us
+        best_d = float("inf")
+        for sp in self.spans:
+            if sp.get("depth", 0) != depth:
+                continue
+            for edge in (sp["start_us"], sp["end_us"]):
+                d = abs(edge - (t_us + self.t_min))
+                if d < best_d:
+                    best_d = d
+                    best_t = edge - self.t_min
+        return best_t
 
     def _build_menu(self):
         menubar = self.menuBar()
@@ -692,6 +962,11 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self.act_bar_labels.triggered.connect(self._toggle_bar_labels)
         view_menu.addAction(self.act_bar_labels)
 
+        self.act_mark_labels = QtGui.QAction("Show Marker Names on Chart", self, checkable=True)
+        self.act_mark_labels.setChecked(False)  # OFF by default
+        self.act_mark_labels.triggered.connect(self._toggle_mark_labels)
+        view_menu.addAction(self.act_mark_labels)
+
         self.act_sticky_hover = QtGui.QAction("Sticky Hover Label", self, checkable=True)
         self.act_sticky_hover.setChecked(True)   # ON by default
         self.act_sticky_hover.triggered.connect(self._toggle_sticky_hover)
@@ -799,8 +1074,19 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         graph_action.setShortcut("Ctrl+Shift+G")
         self._panels_menu.addAction(graph_action)
 
+        bm_action = self.bookmark_dock.toggleViewAction()
+        bm_action.setText("Bookmarks")
+        bm_action.setShortcut("Ctrl+Shift+B")
+        self._panels_menu.addAction(bm_action)
+
+        act_pin_bm = QtGui.QAction("Pin Position", self)
+        act_pin_bm.setShortcut("Ctrl+B")
+        act_pin_bm.triggered.connect(self._save_current_bookmark)
+        self.addAction(act_pin_bm)
+
     def _build_toolbar(self):
         tb = QtWidgets.QToolBar("Main")
+        tb.setObjectName("toolbar_main")
         tb.setMovable(False)
         self.addToolBar(tb)
 
@@ -949,16 +1235,27 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             color_mode=current_mode,
             marks=self.marks,
             pause_regions=self.pause_regions,
+            row_height=self._row_height_setting,
+            font_size=self._font_size_setting,
         )
         self._flame_item.set_hidden(
             self.summary_dock.hidden_names() if hasattr(self, "summary_dock") else set()
         )
-        # Preserve current bar-labels toggle state across refresh/load
+        self._flame_item.set_hidden_marks(
+            self.marker_dock.hidden_names() if hasattr(self, "marker_dock") else set()
+        )
+        # Preserve toggle states across refresh/load
         if hasattr(self, "act_bar_labels") and self.act_bar_labels.isChecked():
             self._flame_item.set_show_bar_labels(True)
+        if hasattr(self, "act_mark_labels") and self.act_mark_labels.isChecked():
+            self._flame_item.set_show_mark_labels(True)
         if hasattr(self, "act_sticky_hover") and self.act_sticky_hover.isChecked():
             self._flame_item.set_show_sticky_hover(True)
         self.plot.addItem(self._flame_item)
+
+        # Restore bookmarks on the new flame item
+        if hasattr(self, "bookmark_dock"):
+            self._sync_bookmark_lines(self.bookmark_dock.get_bookmarks())
 
         y_top = self.min_display_y - 0.2
         y_bot = self.max_display_y + 1.0
@@ -1041,10 +1338,6 @@ class ProfilerWindow(QtWidgets.QMainWindow):
 
     def _export_image_dialog(self):
         """File → Export → Export Image... — save the current chart view as PNG or SVG."""
-        hidden_fns   = sorted(self.summary_dock.hidden_names())
-        hidden_marks = sorted(self.marker_dock.hidden_names())
-        has_hidden   = bool(hidden_fns or hidden_marks)
-
         path, selected_filter = QtWidgets.QFileDialog.getSaveFileName(
             self,
             "Export Chart Image",
@@ -1058,30 +1351,15 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         if not path.lower().endswith((".png", ".svg")):
             path += ".svg" if is_svg else ".png"
 
-        include_legend = False
-        if has_hidden:
-            reply = QtWidgets.QMessageBox.question(
-                self,
-                "Include hidden-items legend?",
-                f"You have {len(hidden_fns)} hidden function(s) and "
-                f"{len(hidden_marks)} hidden marker(s).\n\n"
-                "Add a legend to the exported image listing what was hidden?",
-                QtWidgets.QMessageBox.StandardButton.Yes
-                | QtWidgets.QMessageBox.StandardButton.No,
-            )
-            include_legend = (reply == QtWidgets.QMessageBox.StandardButton.Yes)
-
         try:
-            self._export_image(path, is_svg, include_legend, hidden_fns, hidden_marks)
+            self._export_image(path, is_svg)
             self.statusBar().showMessage(
                 f"Image exported to {os.path.basename(path)}", 4000
             )
         except Exception as e:
             self._toast.show_message("Export failed", str(e), level="error")
 
-    def _export_image(self, path: str, as_svg: bool,
-                      include_legend: bool,
-                      hidden_fns: list, hidden_marks: list) -> None:
+    def _export_image(self, path: str, as_svg: bool) -> None:
         """Render and save the chart widget to *path* as PNG or SVG."""
         from PySide6 import QtSvg
 
@@ -1095,57 +1373,11 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             gen.setTitle("CortexM0 Profiler — chart export")
             painter = QtGui.QPainter(gen)
             widget.render(painter)
-            if include_legend:
-                self._paint_hidden_legend(painter, widget.rect(), hidden_fns, hidden_marks)
             painter.end()
         else:
             pixmap = widget.grab()
-            if include_legend:
-                painter = QtGui.QPainter(pixmap)
-                self._paint_hidden_legend(painter, pixmap.rect(), hidden_fns, hidden_marks)
-                painter.end()
             if not pixmap.save(path, "PNG"):
                 raise OSError(f"Could not write PNG to {path}")
-
-    def _paint_hidden_legend(self, painter: QtGui.QPainter, bounds: QtCore.QRect,
-                              hidden_fns: list, hidden_marks: list) -> None:
-        """Draw a semi-transparent legend panel in the bottom-left of *bounds*."""
-        lines: list[str] = []
-        if hidden_fns:
-            lines.append(f"Hidden functions ({len(hidden_fns)}):")
-            for n in hidden_fns[:8]:
-                lines.append(f"  \u2022 {n}")
-            if len(hidden_fns) > 8:
-                lines.append(f"  \u2026 and {len(hidden_fns) - 8} more")
-        if hidden_marks:
-            if lines:
-                lines.append("")
-            lines.append(f"Hidden markers ({len(hidden_marks)}):")
-            for n in hidden_marks[:6]:
-                lines.append(f"  \u2022 {n}")
-            if len(hidden_marks) > 6:
-                lines.append(f"  \u2026 and {len(hidden_marks) - 6} more")
-        if not lines:
-            return
-
-        font = QtGui.QFont("Consolas", 9)
-        painter.setFont(font)
-        fm = QtGui.QFontMetrics(font)
-        line_h = fm.height() + 3
-        pad = 10
-        box_w = max(fm.horizontalAdvance(ln) for ln in lines) + pad * 2
-        box_h = len(lines) * line_h + pad * 2
-        x = pad
-        y = bounds.height() - box_h - pad
-
-        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-        painter.setBrush(QtGui.QColor(0, 0, 0, 175))
-        painter.setPen(QtGui.QPen(QtGui.QColor("#666666"), 1))
-        painter.drawRoundedRect(QtCore.QRectF(x, y, box_w, box_h), 4, 4)
-
-        painter.setPen(QtGui.QColor("#dddddd"))
-        for i, line in enumerate(lines):
-            painter.drawText(x + pad, y + pad + i * line_h + fm.ascent(), line)
 
     # ── Open Trace / Recent ─────────────────────────────────────────
 
@@ -1487,6 +1719,11 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         if hasattr(self, "_flame_item") and self._flame_item is not None:
             self._flame_item.set_show_bar_labels(checked)
 
+    def _toggle_mark_labels(self, checked):
+        """View > Show Marker Names on Chart."""
+        if hasattr(self, "_flame_item") and self._flame_item is not None:
+            self._flame_item.set_show_mark_labels(checked)
+
     def _toggle_sticky_hover(self, checked):
         """View > Sticky Hover Label."""
         if hasattr(self, "_flame_item") and self._flame_item is not None:
@@ -1714,6 +1951,102 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             self._mode_label.setVisible(False)
 
     def _plot_mouse_press(self, event):
+        # Bookmark pick mode — one-shot left-click to place a bookmark
+        if self._bookmark_pick_mode and event.button() == QtCore.Qt.MouseButton.LeftButton:
+            t_us  = max(0.0, self._view_x_from_event(event))
+            depth = self._depth_from_event(event)
+            t_us  = self._snap_to_span_edge(t_us, depth)
+            self._toggle_bookmark_pick(False)
+            self.bookmark_dock.save_bookmark(t_us, depth)
+            event.accept()
+            return
+
+        # Right-click: function actions + bookmark
+        if event.button() == QtCore.Qt.MouseButton.RightButton:
+            t_us  = max(0.0, self._view_x_from_event(event))
+            depth = self._depth_from_event(event)
+            menu  = QtWidgets.QMenu(self.plot_widget)
+
+            # Hit-test: find the span under the cursor
+            vb = self.plot.getViewBox()
+            try:
+                scene_pt = self.plot_widget.mapToScene(event.position().toPoint())
+            except AttributeError:
+                scene_pt = self.plot_widget.mapToScene(event.pos())
+            pt = vb.mapSceneToView(scene_pt)
+            hit = self._find_span_at(depth, pt.x(), pt.y()) if hasattr(self, "_find_span_at") else None
+
+            # Hit-test bookmarks — work entirely in scene (pixel) space so the
+            # label area (which is drawn in screen coords, extending rightward
+            # from the line) is also detectable.
+            _vb_rect  = vb.sceneBoundingRect()
+            # "Label zone": top ~22 px of the viewbox where the 🔖 text sits
+            _in_label_zone = (scene_pt.y() - _vb_rect.top()) <= 22
+            bm_hit_idx = -1
+            for _i, _bm in enumerate(self.bookmark_dock.get_bookmarks()):
+                if not _bm.get("visible", True):
+                    continue
+                # Map bookmark x to scene x
+                _bm_sx = vb.mapViewToScene(QtCore.QPointF(_bm["t_us"], 0)).x()
+                _dx    = scene_pt.x() - _bm_sx
+                # Line hit: ±8 px anywhere on the vertical dashed line
+                if abs(_dx) <= 8:
+                    bm_hit_idx = _i
+                    break
+                # Label hit: click is 0–180 px to the right of the line AND
+                # within the top label zone
+                if _in_label_zone and 0 <= _dx <= 180:
+                    bm_hit_idx = _i
+                    break
+
+            if bm_hit_idx >= 0:
+                _bm_name = self.bookmark_dock.get_bookmarks()[bm_hit_idx]["name"]
+                menu.addSection(f"\U0001f516 {_bm_name}")
+                act_remove_bm = QtGui.QAction("Remove bookmark", menu)
+                act_remove_bm.triggered.connect(
+                    lambda *_, _idx=bm_hit_idx: self.bookmark_dock._remove_bookmark(_idx)
+                )
+                menu.addAction(act_remove_bm)
+                menu.addSeparator()
+
+            if hit is not None:
+                fn_name = hit["name"]
+                menu.addSection(fn_name)
+
+                act_summary = QtGui.QAction("Show in Function Summary", menu)
+                act_summary.triggered.connect(
+                    lambda checked=False, n=fn_name: self._show_function_in_summary(n)
+                )
+                menu.addAction(act_summary)
+
+                act_ribbon = QtGui.QAction("Add to Function Ribbon", menu)
+                act_ribbon.triggered.connect(
+                    lambda checked=False, n=fn_name: self._on_ribbon_requested(n)
+                )
+                menu.addAction(act_ribbon)
+
+                act_jitter = QtGui.QAction("Jitter Analysis…", menu)
+                act_jitter.triggered.connect(
+                    lambda checked=False, n=fn_name: self._show_jitter_for_function(n)
+                )
+                menu.addAction(act_jitter)
+
+                menu.addSeparator()
+
+            add_bm = QtGui.QAction("\U0001f516  Add bookmark here", menu)
+            snapped = self._snap_to_span_edge(t_us, depth)
+            add_bm.triggered.connect(
+                lambda *_, _t=snapped, _d=depth: self.bookmark_dock.save_bookmark(_t, _d)
+            )
+            menu.addAction(add_bm)
+
+            try:
+                menu.exec(event.globalPosition().toPoint())
+            except AttributeError:
+                menu.exec(event.globalPos())
+            event.accept()
+            return
+
         # Shift + Left-drag: mode-less region zoom (alternative to the
         # toolbar Select Zoom action). Uses the same overlay + release
         # machinery but doesn't require entering a mode.
@@ -1820,6 +2153,10 @@ class ProfilerWindow(QtWidgets.QMainWindow):
                 self._shortcut_overlay.hide()
                 event.accept()
                 return
+            if self._bookmark_pick_mode:
+                self._toggle_bookmark_pick(False)
+                event.accept()
+                return
             if self._select_mode:
                 self.act_select_zoom.setChecked(False)
                 self._toggle_select_zoom(False)
@@ -1907,7 +2244,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             self._shortcut_overlay.setGeometry(self.rect())
         # Keep the toast pinned to the bottom-right corner.
         if getattr(self, "_toast", None) is not None and self._toast.isVisible():
-            self._toast._reposition()
+            self._toast.reposition()
 
     def _on_plot_clicked(self, ev):
         if not self._pick_mode:
@@ -2070,6 +2407,12 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self._update_view_range()
         self._flash_span_highlight(sp)
         self._show_iter_status(name, c["index"] + 1, len(matches), sp["start_us"] - self.t_min)
+
+    def _show_function_in_summary(self, name: str) -> None:
+        """Raise the Function Summary dock and scroll to *name*'s row."""
+        self.summary_dock.show()
+        self.summary_dock.raise_()
+        self.summary_dock.scroll_to_function(name)
 
     def _on_ribbon_requested(self, name):
         """Context menu: Show in Ribbon View → pin a ribbon for ``name``."""
@@ -2433,7 +2776,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
                 t_rel = mark["t_us"] - self.t_min
             t = t_rel * s
             ctx = f" (ISR {mark['ipsr']})" if mark.get("ipsr", 0) else ""
-            mark_color = THEME["status_mark"]
+            mark_color = THEME["selection"]
             self.hover_label.setText(
                 f"<b>MARK:</b> <span style='color:{mark_color}'>{mark['name']}</span>"
                 f"  @ {t:.3f} {u}{ctx}"
@@ -2492,7 +2835,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         return None
 
 
-_ICON_PATH = os.path.join(os.path.dirname(__file__), "icons", "icon.png")
+_ICON_PATH = os.path.join(os.path.dirname(__file__), "icons", "icon.svg")
 
 
 def _apply_dark_title_bar(widget):
@@ -2541,9 +2884,19 @@ def show_gui(
     if app is None:
         app = QtWidgets.QApplication(sys.argv)
     # Application icon — shown in the taskbar, window title bar, and
-    # Alt+Tab switcher.
+    # Alt+Tab switcher.  Pre-render the SVG at several sizes so Windows
+    # always gets a crisp bitmap rather than scaling a single raster.
     if os.path.exists(_ICON_PATH):
-        icon = QtGui.QIcon(_ICON_PATH)
+        from PySide6.QtSvg import QSvgRenderer
+        renderer = QSvgRenderer(_ICON_PATH)
+        icon = QtGui.QIcon()
+        for sz in (16, 24, 32, 48, 64, 128, 256):
+            pm = QtGui.QPixmap(sz, sz)
+            pm.fill(QtCore.Qt.GlobalColor.transparent)
+            painter = QtGui.QPainter(pm)
+            renderer.render(painter)
+            painter.end()
+            icon.addPixmap(pm)
         app.setWindowIcon(icon)
     else:
         icon = None

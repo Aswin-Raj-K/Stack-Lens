@@ -155,10 +155,10 @@ class MinimapWidget(QtWidgets.QWidget):
             color = QtGui.QColor(self._color_map.get(sp["name"], THEME["canvas_fallback"]))
             p.fillRect(QtCore.QRectF(x, y, width, max(1.0, row_h - 0.2)), color)
 
-        # Marks as bright cyan 2-pixel vertical lines (match main chart).
+        # Marks as 2-pixel vertical lines (match main chart).
         # Stop at content_h so the lines don't bleed into the gutter.
         if self._marks:
-            mark_pen = QtGui.QPen(QtGui.QColor(THEME["status_mark"]))
+            mark_pen = QtGui.QPen(QtGui.QColor(THEME["selection"]))
             mark_pen.setWidth(2)
             p.setPen(mark_pen)
             for m in self._marks:

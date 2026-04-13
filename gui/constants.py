@@ -11,6 +11,28 @@ COLORS = [
     "#00CC96", "#AB63FA", "#FFA15A", "#19D3F3", "#FF6692",
 ]
 
+# Named function-color palettes.
+# COLORS is kept as the backward-compatible default alias.
+PALETTE_DEFAULT = COLORS
+
+# Okabe-Ito — designed for colorblind accessibility (8 colors).
+PALETTE_COLORBLIND = [
+    "#E69F00", "#56B4E9", "#009E73", "#F0E442",
+    "#0072B2", "#D55E00", "#CC79A7", "#999999",
+]
+
+# High-contrast palette — strong, visually distinct colors (8 colors).
+PALETTE_HIGH_CONTRAST = [
+    "#FF0000", "#00BFFF", "#00FF00", "#FF8C00",
+    "#DA70D6", "#FFFF00", "#00CED1", "#FF69B4",
+]
+
+PALETTES = {
+    "Default":        PALETTE_DEFAULT,
+    "Colorblind-safe": PALETTE_COLORBLIND,
+    "High-contrast":  PALETTE_HIGH_CONTRAST,
+}
+
 # Viridis-like heat colormap, used for "color by duration" mode.
 # Cold (dark purple) = fast, hot (yellow) = slow.
 VIRIDIS = [
@@ -23,7 +45,7 @@ VIRIDIS = [
 # Template — {{/}} are literal CSS braces; {token} values are injected by
 # build_dark_stylesheet().  Every hex value maps to a THEME key.
 _DARK_STYLESHEET_TMPL = """
-QMainWindow, QWidget {{ background: {bg_base}; color: {text_primary}; }}
+QMainWindow, QWidget {{ background: {bg_base}; color: {text_primary}; font-size: 9pt; }}
 QLabel {{ color: {text_primary}; }}
 QPushButton {{
     background: {bg_elevated}; color: {text_btn}; border: 1px solid {border_input};
@@ -55,6 +77,7 @@ QHeaderView::section {{
     padding: 6px 22px 6px 10px;
     border: 0;
     border-right: 1px solid {border_header};
+    font-size: 9pt;
     font-weight: bold;
 }}
 QHeaderView::section:hover {{
@@ -156,10 +179,17 @@ QTabBar::tab {{
     border-bottom: none;
     margin-right: 2px;
     min-width: 90px;
+    /* Explicit pt size so the font always has a valid pointSize().
+       Without this, if any ancestor sets font-size in px, the tab
+       font's pointSize() returns -1.  Qt then calls setPointSize(-1)
+       when merging font-weight:bold for the :selected rule, which
+       prints "QFont::setPointSize: Point size <= 0 (-1)". */
+    font-size: 9pt;
 }}
 QTabBar::tab:selected {{
     background: {selection_bg};
     color: {tab_selected_text};
+    font-size: 9pt;
     font-weight: bold;
     border: 1px solid {interactive_ctrl_hover};
     border-bottom: 2px solid {accent_primary};
@@ -285,12 +315,43 @@ QToolBar QToolButton:checked {{
     background: {accent_checked_bg};
     border: 1px solid {accent_checked_border};
     color: {accent_checked_text};
+    font-size: 9pt;
     font-weight: bold;
 }}
 QToolBar QToolButton:checked:hover {{
     background: {accent_checked_hover};
     border-color: {accent_checked_hover_border};
     color: {accent_checked_hover_text};
+}}
+
+/* ── Hover-bar inline buttons (e.g. bookmark toggle) ─────────── */
+QToolButton#HoverBarBtn {{
+    background: {bg_ctrl_panel};
+    color: {toolbar_btn_text};
+    border: 1px solid {toolbar_btn_border};
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-size: 10pt;
+}}
+QToolButton#HoverBarBtn:hover {{
+    background: {toolbar_btn_hover_bg};
+    border-color: {toolbar_btn_hover_border};
+    color: {toolbar_btn_hover_text};
+}}
+QToolButton#HoverBarBtn:pressed {{
+    background: {toolbar_btn_pressed_bg};
+    border-color: {toolbar_btn_pressed_border};
+    color: {text_white};
+}}
+QToolButton#HoverBarBtn:checked {{
+    background: {toolbar_btn_hover_bg};
+    border: 1px solid {toolbar_btn_hover_border};
+    color: {toolbar_btn_hover_text};
+}}
+QToolButton#HoverBarBtn:checked:hover {{
+    background: {toolbar_btn_pressed_bg};
+    border-color: {toolbar_btn_hover_border};
+    color: {text_white};
 }}
 
 /* ── Toolbar input fields ────────────────────────────────────── */
@@ -309,6 +370,7 @@ QLabel#ModeBadge {{
     border: 1px solid {accent_checked_border};
     border-radius: 3px;
     padding: 1px 8px;
+    font-size: 9pt;
     font-weight: bold;
 }}
 
@@ -328,6 +390,7 @@ QFrame#ShortcutPanel QLabel#ShortcutTitle {{
     color: {text_white};
 }}
 QFrame#ShortcutPanel QLabel#SectionHeader {{
+    font-size: 9pt;
     font-weight: bold;
     color: {accent_checked_text};
     padding: 2px 0px;
@@ -347,6 +410,7 @@ QFrame#ShortcutPanel QFrame#SectionSep {{
     border-top: 1px solid {border_subtle};
     max-height: 1px;
 }}
+
 """
 
 
