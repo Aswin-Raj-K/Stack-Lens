@@ -460,6 +460,7 @@ class FlameItem(pg.GraphicsObject):
                 LINE_H   = fm.height() + 2   # vertical step per stagger level
                 MAX_LVL  = 5                 # cap stagger depth
                 PAD_PX   = 6                 # horizontal gap between labels
+                EDGE_PAD = 4
                 # rightmost pixel edge used so far at each level
                 lvl_right = [-9999.0] * MAX_LVL
 
@@ -468,16 +469,31 @@ class FlameItem(pg.GraphicsObject):
                 painter.setFont(lbl_font)
                 painter.setPen(mark_color)
 
+                vp       = painter.viewport()
+                vp_left  = vp.left()
+                vp_right = vp.right()
+                vp_top   = vp.top()
+
                 for x_px, y_base, label, w in label_entries:
-                    lx = x_px + 4
-                    # find lowest free level
+                    # Prefer drawing to the right of the line; flip to the left
+                    # if it would overflow the viewport, and clamp if both sides
+                    # would overflow.
+                    lx_right = x_px + EDGE_PAD
+                    lx_left  = x_px - EDGE_PAD - w
+                    if lx_right + w <= vp_right - EDGE_PAD:
+                        lx = lx_right
+                    elif lx_left >= vp_left + EDGE_PAD:
+                        lx = lx_left
+                    else:
+                        lx = max(vp_left + EDGE_PAD,
+                                 min(lx_right, vp_right - EDGE_PAD - w))
+                    # find lowest free level based on the label's actual extent
                     lvl = next((l for l in range(MAX_LVL) if lx >= lvl_right[l]),
                                MAX_LVL - 1)
                     lvl_right[lvl] = lx + w + PAD_PX
-                    painter.drawText(
-                        QtCore.QPointF(lx, y_base - 4 - lvl * LINE_H),
-                        label,
-                    )
+                    y = max(vp_top + fm.ascent() + EDGE_PAD,
+                            y_base - 4 - lvl * LINE_H)
+                    painter.drawText(QtCore.QPointF(lx, y), label)
 
                 painter.restore()
                 painter.setPen(line_pen)
@@ -538,6 +554,7 @@ class FlameItem(pg.GraphicsObject):
                 LINE_H    = fm_bm.height() + 2
                 MAX_LVL   = 5
                 PAD_PX    = 6
+                EDGE_PAD  = 4
                 lvl_right = [-9999.0] * MAX_LVL
 
                 painter.save()
@@ -545,15 +562,27 @@ class FlameItem(pg.GraphicsObject):
                 painter.setFont(bm_font)
                 painter.setPen(bm_color)
 
+                vp       = painter.viewport()
+                vp_left  = vp.left()
+                vp_right = vp.right()
+                vp_bot   = vp.bottom()
+
                 for x_px, y_base, label, w in bm_label_entries:
-                    lx = x_px + 4
+                    lx_right = x_px + EDGE_PAD
+                    lx_left  = x_px - EDGE_PAD - w
+                    if lx_right + w <= vp_right - EDGE_PAD:
+                        lx = lx_right
+                    elif lx_left >= vp_left + EDGE_PAD:
+                        lx = lx_left
+                    else:
+                        lx = max(vp_left + EDGE_PAD,
+                                 min(lx_right, vp_right - EDGE_PAD - w))
                     lvl = next((l for l in range(MAX_LVL) if lx >= lvl_right[l]),
                                MAX_LVL - 1)
                     lvl_right[lvl] = lx + w + PAD_PX
-                    painter.drawText(
-                        QtCore.QPointF(lx, y_base + LINE_H + lvl * LINE_H),
-                        label,
-                    )
+                    y = min(vp_bot - EDGE_PAD,
+                            y_base + LINE_H + lvl * LINE_H)
+                    painter.drawText(QtCore.QPointF(lx, y), label)
 
                 painter.restore()
 

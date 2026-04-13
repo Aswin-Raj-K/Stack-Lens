@@ -253,12 +253,36 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         layout.setSpacing(2)  # tight so minimap/plot are separated only by the 1px border
 
         # Overflow banner (hidden unless the ring buffer wrapped)
-        self.overflow_banner = QtWidgets.QLabel()
+        self.overflow_banner = QtWidgets.QFrame()
         self.overflow_banner.setStyleSheet(
-            f"background:{THEME['status_error_bg']}; color:#ffeaea; padding:8px;"
-            "border-radius:4px; font-weight:bold;"
+            f"QFrame{{background:{THEME['status_error_bg']}; border-radius:4px;}}"
         )
+        _ovf_row = QtWidgets.QHBoxLayout(self.overflow_banner)
+        _ovf_row.setContentsMargins(8, 8, 6, 8)
+        _ovf_row.setSpacing(6)
+
+        self.overflow_banner_label = QtWidgets.QLabel()
+        self.overflow_banner_label.setStyleSheet(
+            "background:transparent; color:#ffeaea; font-weight:bold;"
+        )
+        self.overflow_banner_label.setWordWrap(True)
+        _ovf_row.addWidget(self.overflow_banner_label, 1)
+
+        _ovf_close = QtWidgets.QToolButton()
+        _ovf_close.setText("\u00d7")
+        _ovf_close.setFixedSize(20, 20)
+        _ovf_close.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        _ovf_close.setToolTip("Dismiss")
+        _ovf_close.setStyleSheet(
+            "QToolButton{border:none;color:#ffeaea;font-size:14px;"
+            "background:transparent;}"
+            "QToolButton:hover{color:#ffffff;}"
+        )
+        _ovf_close.clicked.connect(self._dismiss_overflow_banner)
+        _ovf_row.addWidget(_ovf_close, 0, QtCore.Qt.AlignmentFlag.AlignTop)
+
         self.overflow_banner.setVisible(False)
+        self._overflow_dismissed = False
         layout.addWidget(self.overflow_banner)
 
         # Minimap strip — visible by default (toggle via View → Show Minimap)
@@ -1634,6 +1658,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self.marks = list(marks or [])
         self.pause_regions = list(pause_regions or [])
         self.wrapped = bool(wrapped)
+        self._overflow_dismissed = False
         self._compute_extents()
         self._update_color_map()
 
@@ -1863,16 +1888,20 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self.plot.showGrid(x=checked, y=False, alpha=0.25 if checked else 0)
 
     def _update_overflow_banner(self):
-        if self.wrapped:
+        if self.wrapped and not self._overflow_dismissed:
             shown = len(self.spans)
             tail = f" and {len(self.marks)} marks." if self.marks else "."
-            self.overflow_banner.setText(
+            self.overflow_banner_label.setText(
                 f"WARNING: Trace buffer wrapped - oldest events lost. "
                 f"Showing the most recent {shown} reconstructed spans" + tail
             )
             self.overflow_banner.setVisible(True)
         else:
             self.overflow_banner.setVisible(False)
+
+    def _dismiss_overflow_banner(self):
+        self._overflow_dismissed = True
+        self.overflow_banner.setVisible(False)
 
     def _set_view_start(self, start_us):
         self.view_start = max(0, min(start_us, max(0, self.total_us - self.window_us)))
