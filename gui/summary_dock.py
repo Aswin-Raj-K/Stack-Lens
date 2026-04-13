@@ -2,7 +2,7 @@
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from span_builder import compute_stats
+from span_builder import compute_stats, compute_stats_no_isr
 
 from .dock_base import DockBase
 from .sort_helpers import NumericSortItem, SortableHeader, pad_columns_for_sort_indicator
@@ -42,8 +42,8 @@ class SummaryDock(DockBase):
         self._updating = False  # guard against itemChanged loops
         self._search_text = ""  # current search filter (lowercased)
         self._cursors_enabled = False
-        self._call_overhead_us = 0.0  # subtracted from every call's duration in display
-
+        self._exclude_isr = False     # when True, ISR preemption time removed from thread stats
+        self._spans: list = []        # cached for recompute on flag changes
         container = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -107,7 +107,8 @@ class SummaryDock(DockBase):
         if color_map is not None:
             self._color_map = color_map
 
-        stats = compute_stats(spans)
+        self._spans = spans  # cache for recompute on flag changes
+        stats = compute_stats_no_isr(spans) if self._exclude_isr else compute_stats(spans)
         # Cache stats dict for later refresh / lookup by name
         self._stats_by_name = dict(stats)
 
@@ -184,17 +185,6 @@ class SummaryDock(DockBase):
             self._updating = False
             self._table.setSortingEnabled(True)
 
-    def set_overhead_us(self, overhead_us: float) -> None:
-        """Subtract a fixed per-call overhead from displayed totals/avg/max."""
-        self._call_overhead_us = float(overhead_us)
-        self._updating = True
-        self._table.setSortingEnabled(False)
-        try:
-            self._refresh_unit_columns()
-        finally:
-            self._updating = False
-            self._table.setSortingEnabled(True)
-
     def _refresh_unit_columns(self):
         """Rewrite headers and time-column cell text for the current unit.
 
@@ -228,11 +218,10 @@ class SummaryDock(DockBase):
             stats = self._stats_by_name.get(name)
             if stats is None:
                 continue
-            oh    = self._call_overhead_us
             count = stats["count"]
-            total = max(0.0, stats["total_us"] - oh * count) * s
-            avg   = max(0.0, stats["total_us"] / count - oh) * s if count else 0.0
-            mx    = max(0.0, stats["max_us"] - oh) * s
+            total = stats["total_us"] * s
+            avg   = (stats["total_us"] / count) * s if count else 0.0
+            mx    = stats["max_us"] * s
 
             for col, raw in ((3, total), (4, avg), (5, mx)):
                 item = self._table.item(row, col)
@@ -258,6 +247,14 @@ class SummaryDock(DockBase):
 
     def set_cursors_enabled(self, enabled: bool) -> None:
         self._cursors_enabled = enabled
+
+    def set_exclude_isr(self, enabled: bool) -> None:
+        """Toggle ISR preemption time exclusion from thread function stats."""
+        if self._exclude_isr == enabled:
+            return
+        self._exclude_isr = enabled
+        if self._spans:
+            self.set_spans(self._spans)
 
     def hidden_names(self):
         return set(self._hidden)

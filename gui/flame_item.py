@@ -23,7 +23,7 @@ class FlameItem(pg.GraphicsObject):
     """
 
     def __init__(self, spans, color_map, t_min, color_mode="function", marks=None, pause_regions=None,
-                 row_height=None, font_size=None, overhead_us=0.0):
+                 row_height=None, font_size=None):
         super().__init__()
         self._t_min = t_min
         self._color_mode = color_mode
@@ -37,12 +37,11 @@ class FlameItem(pg.GraphicsObject):
         self._sticky_text = ""
         self._row_height = row_height if row_height is not None else ROW_HEIGHT
         self._chart_font_size = font_size if font_size is not None else 8
-        _oh = float(overhead_us)
 
-        # Viridis normalization from adjusted durations
-        durations = [max(0.0, sp["duration_us"] - _oh) for sp in spans if sp["duration_us"] > 0]
+        # Viridis normalization from span durations (spans may be pre-adjusted)
+        durations = [sp["duration_us"] for sp in spans if sp["duration_us"] > 0]
         if durations:
-            d_min = min(d for d in durations if d > 0) if any(d > 0 for d in durations) else 0.0
+            d_min = min(durations)
             d_max = max(durations)
             log_min = math.log10(d_min) if d_min > 0 else 0.0
             log_max = math.log10(d_max) if d_max > 0 else 1.0
@@ -66,9 +65,8 @@ class FlameItem(pg.GraphicsObject):
         self._has_isr = False
         for sp in spans:
             x0 = sp["start_us"] - t_min
-            # Shorten each bar by the overhead; start position is unchanged
-            adj_dur = max(0.0, sp["duration_us"] - _oh)
-            x1 = x0 + adj_dur
+            x1 = sp["end_us"]   - t_min
+            adj_dur = max(0.0, x1 - x0)
             ipsr = sp.get("ipsr", 0)
             if ipsr == 0:
                 display_y = sp["depth"]
@@ -486,6 +484,7 @@ class FlameItem(pg.GraphicsObject):
 
         # ── Bookmark markers ───────────────────────────────────────
         if self._bookmarks_vis:
+            painter.save()  # isolate ALL bookmark state so nothing leaks out
             _top_y  = self._bounds.top()
             _bot_y  = self._bounds.bottom()
             _margin = 20.0 / px_per_unit_x
@@ -494,7 +493,17 @@ class FlameItem(pg.GraphicsObject):
             bm_pen.setWidth(1)
             bm_pen.setCosmetic(True)
             bm_pen.setStyle(QtCore.Qt.PenStyle.DashLine)
-            lbl_font = QtGui.QFont("Segoe UI", self._chart_font_size)
+            bm_font = QtGui.QFont("Segoe UI", self._chart_font_size)
+            fm_bm   = QtGui.QFontMetrics(bm_font)
+            # Labels anchor at the top of the visible area and stagger downward.
+            lbl_anchor_y = max(_top_y, y_lo)
+
+            # Pass 1 — lines + I-beam; collect label entries.
+            bm_label_entries = []
+            cap_hw = 5.0 / (abs(t.m11()) or 1.0)
+            thick_pen = QtGui.QPen(bm_color)
+            thick_pen.setWidth(3)
+            thick_pen.setCosmetic(True)
 
             for bm in self._bookmarks_vis:
                 x = bm["x"]
@@ -506,38 +515,49 @@ class FlameItem(pg.GraphicsObject):
                 painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
                 painter.drawLine(QtCore.QPointF(x, _top_y), QtCore.QPointF(x, _bot_y))
 
-                # Thick solid segment at the bookmarked depth row
-                thick_pen = QtGui.QPen(bm_color)
-                thick_pen.setWidth(3)
-                thick_pen.setCosmetic(True)
+                # Thick solid I-beam at the bookmarked depth row
                 row_top = float(bm["depth"])
                 row_bot = row_top + self._row_height
-                # I-beam: cap half-width = 5 px converted to data units
-                cap_hw = 5.0 / (abs(t.m11()) or 1.0)
                 painter.setPen(thick_pen)
-                painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-                # Vertical stem
                 painter.drawLine(QtCore.QPointF(x, row_top), QtCore.QPointF(x, row_bot))
-                # Top cap
                 painter.drawLine(QtCore.QPointF(x - cap_hw, row_top), QtCore.QPointF(x + cap_hw, row_top))
-                # Bottom cap
                 painter.drawLine(QtCore.QPointF(x - cap_hw, row_bot), QtCore.QPointF(x + cap_hw, row_bot))
-                painter.setPen(bm_pen)   # restore dashed pen
+                painter.setPen(bm_pen)
 
-                # 🔖 label — anchored to max(bounds_top, visible_top) so it
-                # stays on-screen even when bounds extend above the viewport.
-                lbl_anchor_y = max(_top_y, y_lo)
+                # Collect label entry (pixel coords)
+                label = "\U0001f516 " + bm["name"]
                 pt_px = t.map(QtCore.QPointF(x, lbl_anchor_y))
+                bm_label_entries.append((pt_px.x(), pt_px.y(), label,
+                                         fm_bm.horizontalAdvance(label)))
+
+            # Pass 2 — staggered labels.
+            # Anchor is at the TOP of the visible area; stagger goes DOWNWARD
+            # (+y) so that crowded bookmarks fan toward the chart without going
+            # above the viewport edge.
+            if bm_label_entries:
+                LINE_H    = fm_bm.height() + 2
+                MAX_LVL   = 5
+                PAD_PX    = 6
+                lvl_right = [-9999.0] * MAX_LVL
+
                 painter.save()
                 painter.resetTransform()
-                painter.setFont(lbl_font)
+                painter.setFont(bm_font)
                 painter.setPen(bm_color)
-                painter.drawText(
-                    QtCore.QPointF(pt_px.x() + 4, pt_px.y() + 13),
-                    "\U0001f516 " + bm["name"],
-                )
+
+                for x_px, y_base, label, w in bm_label_entries:
+                    lx = x_px + 4
+                    lvl = next((l for l in range(MAX_LVL) if lx >= lvl_right[l]),
+                               MAX_LVL - 1)
+                    lvl_right[lvl] = lx + w + PAD_PX
+                    painter.drawText(
+                        QtCore.QPointF(lx, y_base + LINE_H + lvl * LINE_H),
+                        label,
+                    )
+
                 painter.restore()
-                painter.setPen(bm_pen)
+
+            painter.restore()  # restore bookmark outer save
 
         # ── Bar labels pass (elided function names) ────────────────
         # Toggled via View > Show Function Names on Bars. Off by default.

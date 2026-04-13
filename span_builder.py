@@ -2,6 +2,7 @@
 
 import struct
 import subprocess
+from bisect import bisect_left
 from collections import defaultdict
 
 from trace_reader import (
@@ -271,6 +272,43 @@ def compute_stats(spans):
         s["total_us"] += sp["duration_us"]
         s["min_us"] = min(s["min_us"], sp["duration_us"])
         s["max_us"] = max(s["max_us"], sp["duration_us"])
+    return stats
+
+
+def compute_stats_no_isr(spans):
+    """Like compute_stats() but subtracts ISR preemption time from thread durations.
+
+    For each thread span (ipsr == 0), finds ISR spans that overlapped it and
+    removes that overlap from the measured duration so the stats reflect actual
+    CPU time spent in the function, not time spent waiting for interrupts.
+    ISR spans themselves are included unchanged.
+    """
+    isr_spans = sorted(
+        [sp for sp in spans if sp.get("ipsr", 0) != 0],
+        key=lambda s: s["start_us"],
+    )
+    isr_starts = [s["start_us"] for s in isr_spans]
+
+    stats = defaultdict(lambda: {"count": 0, "total_us": 0.0, "min_us": float("inf"), "max_us": 0.0})
+    for sp in spans:
+        if sp.get("ipsr", 0) != 0:
+            # ISR span — include as-is (CortexM0 doesn't preempt within same priority)
+            dur = sp["duration_us"]
+        else:
+            start, end = sp["start_us"], sp["end_us"]
+            lo = bisect_left(isr_starts, start)
+            overlap = 0.0
+            for j in range(lo, len(isr_spans)):
+                isr = isr_spans[j]
+                if isr["start_us"] >= end:
+                    break
+                overlap += min(isr["end_us"], end) - isr["start_us"]
+            dur = max(0.0, sp["duration_us"] - overlap)
+        s = stats[sp["name"]]
+        s["count"] += 1
+        s["total_us"] += dur
+        s["min_us"] = min(s["min_us"], dur)
+        s["max_us"] = max(s["max_us"], dur)
     return stats
 
 

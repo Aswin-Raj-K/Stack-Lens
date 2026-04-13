@@ -4,6 +4,8 @@ Lists the N longest individual span instances in the trace (not averaged).
 Click a row to jump to and flash-highlight that exact call on the flame chart.
 """
 
+from bisect import bisect_left
+
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from .dock_base import DockBase
@@ -37,8 +39,8 @@ class TopNSlowestDock(DockBase):
         self._top_spans = []   # raw us values for the current top-N list
         self._n = DEFAULT_N
         self._updating = False
-        self._call_overhead_us = 0.0  # subtracted from each span's duration in display
-
+        self._exclude_isr = False   # when True, sort/display uses ISR-subtracted durations
+        self._net_dur_cache: dict = {}  # id(span) → net duration_us excluding ISR time
         container = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -89,6 +91,7 @@ class TopNSlowestDock(DockBase):
         if color_map is not None:
             self._color_map = color_map
         self._all_spans = spans
+        self._build_net_dur_cache()
         self._rebuild_table()
 
     def refresh_theme(self):
@@ -107,24 +110,52 @@ class TopNSlowestDock(DockBase):
             self._updating = False
             self._table.setSortingEnabled(True)
 
-    def set_overhead_us(self, overhead_us: float) -> None:
-        """Subtract a fixed per-call overhead from displayed durations and re-sort."""
-        self._call_overhead_us = float(overhead_us)
+    def set_exclude_isr(self, enabled: bool) -> None:
+        """Toggle ISR preemption time exclusion from individual call durations."""
+        if self._exclude_isr == enabled:
+            return
+        self._exclude_isr = enabled
+        self._build_net_dur_cache()
         self._rebuild_table()
 
     # ── Internal ────────────────────────────────────────────────────
+
+    def _build_net_dur_cache(self):
+        """Pre-compute ISR-excluded net duration for every thread span."""
+        if not self._exclude_isr:
+            self._net_dur_cache = {}
+            return
+        isr_spans = sorted(
+            [sp for sp in self._all_spans if sp.get("ipsr", 0) != 0],
+            key=lambda s: s["start_us"],
+        )
+        isr_starts = [s["start_us"] for s in isr_spans]
+        cache = {}
+        for sp in self._all_spans:
+            if sp.get("ipsr", 0) != 0:
+                cache[id(sp)] = sp["duration_us"]
+                continue
+            start, end = sp["start_us"], sp["end_us"]
+            lo = bisect_left(isr_starts, start)
+            overlap = 0.0
+            for j in range(lo, len(isr_spans)):
+                isr = isr_spans[j]
+                if isr["start_us"] >= end:
+                    break
+                overlap += min(isr["end_us"], end) - isr["start_us"]
+            cache[id(sp)] = max(0.0, sp["duration_us"] - overlap)
+        self._net_dur_cache = cache
 
     def _on_n_changed(self, n):
         self._n = n
         self._rebuild_table()
 
     def _rebuild_table(self):
-        oh = self._call_overhead_us
-        self._top_spans = sorted(
-            self._all_spans,
-            key=lambda sp: max(0.0, sp["duration_us"] - oh),
-            reverse=True,
-        )[: self._n]
+        if self._exclude_isr and self._net_dur_cache:
+            sort_key = lambda sp: self._net_dur_cache.get(id(sp), sp["duration_us"])
+        else:
+            sort_key = lambda sp: sp["duration_us"]
+        self._top_spans = sorted(self._all_spans, key=sort_key, reverse=True)[: self._n]
 
         self._updating = True
         self._table.setSortingEnabled(False)
@@ -209,7 +240,8 @@ class TopNSlowestDock(DockBase):
             if idx is None or not (0 <= idx < len(self._top_spans)):
                 continue
             sp = self._top_spans[idx]
-            dur = max(0.0, sp["duration_us"] - self._call_overhead_us) * s
+            raw_dur = self._net_dur_cache.get(id(sp), sp["duration_us"]) if self._exclude_isr else sp["duration_us"]
+            dur = raw_dur * s
             start = (sp["start_us"] - t_min) * s
             for col, raw in ((2, dur), (3, start)):
                 item = self._table.item(row, col)
