@@ -27,10 +27,9 @@ STRIDE_Y  = 110     # vertical   distance between node centres (row spacing)
 
 # ── Visual constants ──────────────────────────────────────────────────
 NODE_ALPHA  = 160   # background fill alpha (0-255)
-EDGE_COLOR  = QtGui.QColor("#6060a0")
 EDGE_WIDTH  = 1.5
 ARROW_SIZE  = 8     # filled arrowhead half-width in px
-# Text colors are read from THEME at paint time so theme switches take effect.
+# All colors are read from THEME at paint/build time so theme switches take effect.
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -182,7 +181,8 @@ def _make_edge(scene: QtWidgets.QGraphicsScene,
         p2,
     )
 
-    pen = QtGui.QPen(EDGE_COLOR, EDGE_WIDTH)
+    edge_color = QtGui.QColor(THEME["accent_primary"])
+    pen = QtGui.QPen(edge_color, EDGE_WIDTH)
     pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
     edge_item = QtWidgets.QGraphicsPathItem(path)
     edge_item.setPen(pen)
@@ -208,8 +208,8 @@ def _make_edge(scene: QtWidgets.QGraphicsScene,
     )
     arrow = QtGui.QPolygonF([p2, left, right])
     arrow_item = QtWidgets.QGraphicsPolygonItem(arrow)
-    arrow_item.setPen(QtGui.QPen(EDGE_COLOR, 1.0))
-    arrow_item.setBrush(EDGE_COLOR)
+    arrow_item.setPen(QtGui.QPen(edge_color, 1.0))
+    arrow_item.setBrush(edge_color)
     arrow_item.setZValue(-1)
     scene.addItem(arrow_item)
 
@@ -358,6 +358,7 @@ class CallGraphDock(DockBase):
         self.setAllowedAreas(QtCore.Qt.DockWidgetArea.AllDockWidgetAreas)
 
         self._color_map = color_map
+        self._spans = spans
         self._node_items: list = []   # list of (path, _NodeItem, raw_node)
 
         container = QtWidgets.QWidget()
@@ -395,8 +396,9 @@ class CallGraphDock(DockBase):
 
     # ── Public API ──────────────────────────────────────────────────
 
-    def set_spans(self, spans, color_map=None):
+    def set_spans(self, spans, color_map=None, _fit=True):
         """Rebuild the graph from a new span list."""
+        self._spans = spans
         if color_map is not None:
             self._color_map = color_map
         tree = build_call_tree(spans)
@@ -407,13 +409,16 @@ class CallGraphDock(DockBase):
             item.clicked.connect(self.function_clicked)
         self._node_items = node_items
         self._view.setScene(scene)
-        # Defer fit so the view has been laid out
-        QtCore.QTimer.singleShot(0, self._fit_view)
+        if _fit:
+            # Defer fit so the view has been laid out
+            QtCore.QTimer.singleShot(0, self._fit_view)
 
     def refresh_theme(self):
-        """Update graph view and scene backgrounds for the current theme."""
+        """Rebuild the scene so edge/node colors pick up the new theme."""
         super().refresh_theme()
         self._view.refresh_theme()
+        if self._spans:
+            self.set_spans(self._spans, _fit=False)
 
     def set_unit(self, unit_label: str, unit_scale: float):
         """Refresh node labels for a new display unit (us / ms)."""

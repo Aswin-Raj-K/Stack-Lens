@@ -65,7 +65,23 @@ class BookmarkDock(DockBase):
 
         layout.addWidget(ctrl)
 
-        # ── Table ────────────────────────────────────────────────────
+        # ── Stacked: empty-state placeholder / table ─────────────────
+        self._stack = QtWidgets.QStackedWidget()
+
+        # Page 0 — empty state
+        empty_page = QtWidgets.QWidget()
+        empty_layout = QtWidgets.QVBoxLayout(empty_page)
+        empty_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self._empty_label = QtWidgets.QLabel(
+            "No bookmarks yet.\n\nClick  + Pin current position\nor press Ctrl+B to add one."
+        )
+        self._empty_label.setObjectName("HintLabel")
+        self._empty_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self._empty_label.setWordWrap(True)
+        empty_layout.addWidget(self._empty_label)
+        self._stack.addWidget(empty_page)          # index 0
+
+        # Page 1 — table
         self._table = QtWidgets.QTableWidget()
         self._table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
@@ -85,7 +101,9 @@ class BookmarkDock(DockBase):
             QtCore.Qt.ContextMenuPolicy.CustomContextMenu
         )
         self._table.customContextMenuRequested.connect(self._on_context_menu)
-        layout.addWidget(self._table, 1)
+        self._stack.addWidget(self._table)         # index 1
+
+        layout.addWidget(self._stack, 1)
 
         self.setWidget(container)
 
@@ -170,6 +188,10 @@ class BookmarkDock(DockBase):
 
     # ── Internal ─────────────────────────────────────────────────────
 
+    def _refresh_empty_state(self) -> None:
+        """Show the empty-state page when there are no bookmarks, table otherwise."""
+        self._stack.setCurrentIndex(0 if not self._bookmarks else 1)
+
     def _add_bookmark(self, name: str, t_us: float, depth: int,
                       visible: bool = True) -> None:
         bm = {"name": name, "t_us": t_us, "depth": depth, "visible": visible}
@@ -220,6 +242,7 @@ class BookmarkDock(DockBase):
             self._table.setColumnWidth(0, 50)
         finally:
             self._updating = False
+        self._refresh_empty_state()
 
     def _rebuild_table(self) -> None:
         """Rebuild all rows from self._bookmarks (used after deletion)."""
@@ -232,6 +255,7 @@ class BookmarkDock(DockBase):
                 self._add_bookmark(bm["name"], bm["t_us"], bm["depth"], bm["visible"])
         finally:
             self._updating = False
+        self._refresh_empty_state()
 
     def _remove_bookmark(self, idx: int) -> None:
         if not (0 <= idx < len(self._bookmarks)):

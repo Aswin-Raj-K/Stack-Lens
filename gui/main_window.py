@@ -559,6 +559,23 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             except Exception:
                 pass  # stale/corrupt state — silently ignore
 
+        # View toggles — (settings_key, action, handler, default)
+        for _key, _act, _fn, _default in [
+            ("show_minimap",    self.act_minimap,     self._toggle_minimap,    False),
+            ("highlight_hover", self.act_highlight,   self._toggle_highlight,  False),
+            ("show_bar_labels", self.act_bar_labels,  self._toggle_bar_labels, False),
+            ("show_mark_labels",self.act_mark_labels, self._toggle_mark_labels,False),
+            ("sticky_hover",    self.act_sticky_hover,self._toggle_sticky_hover,True),
+            ("show_grid",       self.act_grid,        self._toggle_grid,       True),
+            ("cursors_enabled", self.act_cursors,     self._toggle_cursors,    False),
+            ("pick_spans_mode", self.act_pick_spans,  self._toggle_pick_mode,  False),
+            ("select_zoom",     self.act_select_zoom, self._toggle_select_zoom,False),
+        ]:
+            val = bool(s.get(_key, _default))
+            if val != _act.isChecked():
+                _act.setChecked(val)
+                _fn(val)
+
         # Hidden functions / markers (applied after spans are in the docks)
         hidden_fns = s.get("hidden_functions", [])
         if hidden_fns:
@@ -589,6 +606,16 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             "font_size":        self._font_size_setting,
             "ts_decimals":      self._ts_decimals,
             "bookmark_snap":    self._bookmark_snap,
+            # View toggles
+            "show_minimap":     self.act_minimap.isChecked(),
+            "highlight_hover":  self.act_highlight.isChecked(),
+            "show_bar_labels":  self.act_bar_labels.isChecked(),
+            "show_mark_labels": self.act_mark_labels.isChecked(),
+            "sticky_hover":     self.act_sticky_hover.isChecked(),
+            "show_grid":        self.act_grid.isChecked(),
+            "cursors_enabled":  self.act_cursors.isChecked(),
+            "pick_spans_mode":  self.act_pick_spans.isChecked(),
+            "select_zoom":      self.act_select_zoom.isChecked(),
         })
 
     def _save_current_bookmark(self):

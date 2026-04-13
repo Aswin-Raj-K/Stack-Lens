@@ -260,7 +260,8 @@ class RibbonDock(QtWidgets.QDockWidget):
             "Right-click a function in the Function Summary dock and choose\n"
             '"Show in Ribbon View" to add a timeline strip here.'
         )
-        self._hint.setStyleSheet("color: #888; padding: 16px; background: transparent;")
+        self._hint.setObjectName("HintLabel")
+        self._hint.setStyleSheet("padding: 16px;")
         self._hint.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self._layout.addWidget(self._hint)
         self._layout.addStretch(1)

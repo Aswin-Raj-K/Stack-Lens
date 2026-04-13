@@ -363,11 +363,17 @@ QToolBar QDoubleSpinBox:focus, QToolBar QSpinBox:focus, QToolBar QComboBox:focus
     border-color: {accent_primary};
 }}
 
+/* ── Empty-state / hint labels inside docks ─────────────────── */
+QLabel#HintLabel {{
+    color: {text_secondary};
+    background: transparent;
+}}
+
 /* ── Mode badge (status bar, right side) ─────────────────────── */
 QLabel#ModeBadge {{
     background: {accent_checked_bg};
     color: {accent_checked_text};
-    border: 1px solid {accent_checked_border};
+    border: 1px solid {accent_checked_text};
     border-radius: 3px;
     padding: 1px 8px;
     font-size: 9pt;
