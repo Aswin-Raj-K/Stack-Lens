@@ -23,7 +23,7 @@ class FlameItem(pg.GraphicsObject):
     """
 
     def __init__(self, spans, color_map, t_min, color_mode="function", marks=None, pause_regions=None,
-                 row_height=None, font_size=None):
+                 row_height=None, font_size=None, overhead_us=0.0):
         super().__init__()
         self._t_min = t_min
         self._color_mode = color_mode
@@ -37,11 +37,12 @@ class FlameItem(pg.GraphicsObject):
         self._sticky_text = ""
         self._row_height = row_height if row_height is not None else ROW_HEIGHT
         self._chart_font_size = font_size if font_size is not None else 8
+        _oh = float(overhead_us)
 
-        # Viridis normalization from durations
-        durations = [sp["duration_us"] for sp in spans if sp["duration_us"] > 0]
+        # Viridis normalization from adjusted durations
+        durations = [max(0.0, sp["duration_us"] - _oh) for sp in spans if sp["duration_us"] > 0]
         if durations:
-            d_min = min(durations)
+            d_min = min(d for d in durations if d > 0) if any(d > 0 for d in durations) else 0.0
             d_max = max(durations)
             log_min = math.log10(d_min) if d_min > 0 else 0.0
             log_max = math.log10(d_max) if d_max > 0 else 1.0
@@ -65,7 +66,9 @@ class FlameItem(pg.GraphicsObject):
         self._has_isr = False
         for sp in spans:
             x0 = sp["start_us"] - t_min
-            x1 = sp["end_us"] - t_min
+            # Shorten each bar by the overhead; start position is unchanged
+            adj_dur = max(0.0, sp["duration_us"] - _oh)
+            x1 = x0 + adj_dur
             ipsr = sp.get("ipsr", 0)
             if ipsr == 0:
                 display_y = sp["depth"]
@@ -75,7 +78,7 @@ class FlameItem(pg.GraphicsObject):
 
             fn_color = QtGui.QColor(color_map.get(sp["name"], THEME["canvas_fallback"]))
 
-            dur = sp["duration_us"]
+            dur = adj_dur
             if dur > 0:
                 log_d = math.log10(dur)
                 t = (log_d - log_min) / log_range

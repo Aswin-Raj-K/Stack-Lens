@@ -26,6 +26,7 @@ class MarkerDock(DockBase):
     mark_clicked = QtCore.Signal(str)
     visibility_changed = QtCore.Signal(set)
     analyze_jitter_requested = QtCore.Signal(str)
+    cursor_snap_requested = QtCore.Signal(str, float)  # ("A"/"B", abs_t_us)
 
     def __init__(self, marks, parent=None):
         super().__init__("Markers", parent)
@@ -37,6 +38,7 @@ class MarkerDock(DockBase):
         self._stats_by_name = {}
         self._updating = False
         self._search_text = ""
+        self._cursors_enabled = False
 
         container = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(container)
@@ -197,6 +199,9 @@ class MarkerDock(DockBase):
             self._updating = False
             self._table.setSortingEnabled(True)
 
+    def set_cursors_enabled(self, enabled: bool) -> None:
+        self._cursors_enabled = enabled
+
     def hidden_names(self):
         return set(self._hidden)
 
@@ -353,4 +358,14 @@ class MarkerDock(DockBase):
         analyze_action = QtGui.QAction("Analyze Period / Jitter", menu)
         analyze_action.triggered.connect(lambda: self.analyze_jitter_requested.emit(name))
         menu.addAction(analyze_action)
+        if self._cursors_enabled:
+            t_us = self._stats_by_name.get(name, {}).get("first_us", None)
+            if t_us is not None and t_us != float("inf"):
+                menu.addSeparator()
+                for which in ("A", "B"):
+                    act = QtGui.QAction(f"Set as Cursor {which}", menu)
+                    act.triggered.connect(
+                        lambda _=False, w=which, t=t_us: self.cursor_snap_requested.emit(w, t)
+                    )
+                    menu.addAction(act)
         menu.exec(self._table.viewport().mapToGlobal(pos))

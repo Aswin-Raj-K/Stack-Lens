@@ -27,6 +27,7 @@ class SummaryDock(DockBase):
     visibility_changed = QtCore.Signal(set)
     analyze_jitter_requested = QtCore.Signal(str)
     ribbon_requested = QtCore.Signal(str)
+    cursor_snap_requested = QtCore.Signal(str, str)  # ("A"/"B", function_name)
 
     def __init__(self, spans, color_map, parent=None):
         super().__init__("Function Summary", parent)
@@ -40,6 +41,8 @@ class SummaryDock(DockBase):
         self._stats_by_name = {}
         self._updating = False  # guard against itemChanged loops
         self._search_text = ""  # current search filter (lowercased)
+        self._cursors_enabled = False
+        self._call_overhead_us = 0.0  # subtracted from every call's duration in display
 
         container = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(container)
@@ -181,6 +184,17 @@ class SummaryDock(DockBase):
             self._updating = False
             self._table.setSortingEnabled(True)
 
+    def set_overhead_us(self, overhead_us: float) -> None:
+        """Subtract a fixed per-call overhead from displayed totals/avg/max."""
+        self._call_overhead_us = float(overhead_us)
+        self._updating = True
+        self._table.setSortingEnabled(False)
+        try:
+            self._refresh_unit_columns()
+        finally:
+            self._updating = False
+            self._table.setSortingEnabled(True)
+
     def _refresh_unit_columns(self):
         """Rewrite headers and time-column cell text for the current unit.
 
@@ -214,9 +228,11 @@ class SummaryDock(DockBase):
             stats = self._stats_by_name.get(name)
             if stats is None:
                 continue
-            total = stats["total_us"] * s
-            avg = (stats["total_us"] / stats["count"]) * s if stats["count"] else 0.0
-            mx = stats["max_us"] * s
+            oh    = self._call_overhead_us
+            count = stats["count"]
+            total = max(0.0, stats["total_us"] - oh * count) * s
+            avg   = max(0.0, stats["total_us"] / count - oh) * s if count else 0.0
+            mx    = max(0.0, stats["max_us"] - oh) * s
 
             for col, raw in ((3, total), (4, avg), (5, mx)):
                 item = self._table.item(row, col)
@@ -239,6 +255,9 @@ class SummaryDock(DockBase):
                 self._table.selectRow(row)
                 self._table.scrollToItem(item, QtWidgets.QAbstractItemView.ScrollHint.PositionAtCenter)
                 break
+
+    def set_cursors_enabled(self, enabled: bool) -> None:
+        self._cursors_enabled = enabled
 
     def hidden_names(self):
         return set(self._hidden)
@@ -366,4 +385,12 @@ class SummaryDock(DockBase):
         ribbon_action = QtGui.QAction("Show in Ribbon View", menu)
         ribbon_action.triggered.connect(lambda: self.ribbon_requested.emit(name))
         menu.addAction(ribbon_action)
+        if self._cursors_enabled:
+            menu.addSeparator()
+            for which in ("A", "B"):
+                act = QtGui.QAction(f"Set as Cursor {which}", menu)
+                act.triggered.connect(
+                    lambda _=False, w=which, n=name: self.cursor_snap_requested.emit(w, n)
+                )
+                menu.addAction(act)
         menu.exec(self._table.viewport().mapToGlobal(pos))

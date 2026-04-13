@@ -161,6 +161,20 @@ class SettingsDialog(QtWidgets.QDialog):
         )
         form.addRow("Timestamp decimals:", self._ts_decimals_spin)
 
+        # Call overhead per call
+        self._overhead_spin = QtWidgets.QDoubleSpinBox()
+        self._overhead_spin.setRange(0.0, 1000.0)
+        self._overhead_spin.setSingleStep(0.1)
+        self._overhead_spin.setDecimals(3)
+        self._overhead_spin.setValue(s.get("call_overhead_us", 0.0))
+        self._overhead_spin.setStyleSheet(spinbox_qss("QDoubleSpinBox"))
+        self._overhead_spin.setSuffix(" µs")
+        self._overhead_spin.setToolTip(
+            "Subtract this fixed overhead from every function call duration.\n"
+            "Use to correct for __cyg_profile_func_enter/exit wrapper cost."
+        )
+        form.addRow("Call overhead:", self._overhead_spin)
+
         # Snap bookmarks — 1×1 QTableWidget (checkbox only) + QLabel beside it.
         # The table gives the same checkbox indicator as SummaryDock/BookmarkDock;
         # the label stays a normal themed label, not a table cell.
@@ -245,7 +259,8 @@ class SettingsDialog(QtWidgets.QDialog):
             "row_height":    self._row_height_spin.value(),
             "font_size":     self._font_size_spin.value(),
             "ts_decimals":   self._ts_decimals_spin.value(),
-            "bookmark_snap": self._snap_item.checkState() == QtCore.Qt.CheckState.Checked,
+            "bookmark_snap":    self._snap_item.checkState() == QtCore.Qt.CheckState.Checked,
+            "call_overhead_us": self._overhead_spin.value(),
         }
 
     def _on_apply(self):

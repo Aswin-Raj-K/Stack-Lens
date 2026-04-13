@@ -120,6 +120,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self._palette_name:       str   = "Default"
         self._ts_decimals:        int   = 3
         self._bookmark_snap:      bool  = False
+        self._call_overhead_us:   float = 0.0
 
         self._build_ui()
         self._toast = ToastWidget(self)
@@ -406,6 +407,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self.summary_dock.visibility_changed.connect(self._on_visibility_changed)
         self.summary_dock.analyze_jitter_requested.connect(self._show_jitter_for_function)
         self.summary_dock.ribbon_requested.connect(self._on_ribbon_requested)
+        self.summary_dock.cursor_snap_requested.connect(self._snap_cursor_to_function)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.summary_dock)
 
         # Call-tree dock (bottom, tabbed with summary)
@@ -431,6 +433,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self.marker_dock.mark_clicked.connect(self._jump_to_mark_name)
         self.marker_dock.visibility_changed.connect(self._on_mark_visibility_changed)
         self.marker_dock.analyze_jitter_requested.connect(self._show_jitter_for_marker)
+        self.marker_dock.cursor_snap_requested.connect(self._snap_cursor_to_time)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.marker_dock)
         self.tabifyDockWidget(self.summary_dock, self.marker_dock)
 
@@ -531,9 +534,14 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self._font_size_setting  = int(s.get("font_size",     8))
         self._ts_decimals        = int(s.get("ts_decimals",   3))
         self._bookmark_snap      = bool(s.get("bookmark_snap", False))
+        self._call_overhead_us   = float(s.get("call_overhead_us", 0.0))
         # Apply timestamp decimals to toolbar spinboxes immediately
         self.window_spin.setDecimals(self._ts_decimals)
         self.jump_spin.setDecimals(self._ts_decimals)
+        # Apply overhead to docks if non-zero
+        if self._call_overhead_us:
+            self.summary_dock.set_overhead_us(self._call_overhead_us)
+            self.top_n_dock.set_overhead_us(self._call_overhead_us)
         # Rebuild color map with saved palette if it differs from default
         if self._palette_name != "Default":
             palette_colors = PALETTES.get(self._palette_name, COLORS)
@@ -606,6 +614,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             "font_size":        self._font_size_setting,
             "ts_decimals":      self._ts_decimals,
             "bookmark_snap":    self._bookmark_snap,
+            "call_overhead_us": self._call_overhead_us,
             # View toggles
             "show_minimap":     self.act_minimap.isChecked(),
             "highlight_hover":  self.act_highlight.isChecked(),
@@ -730,8 +739,9 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             "palette":       self._palette_name,
             "row_height":    self._row_height_setting,
             "font_size":     self._font_size_setting,
-            "ts_decimals":   self._ts_decimals,
-            "bookmark_snap": self._bookmark_snap,
+            "ts_decimals":      self._ts_decimals,
+            "bookmark_snap":    self._bookmark_snap,
+            "call_overhead_us": self._call_overhead_us,
         }
         dlg = SettingsDialog(
             current_theme=_theme_mod.CURRENT_THEME_NAME,
@@ -816,11 +826,12 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         changed_font      = s.get("font_size", 8)              != self._font_size_setting
         changed_decimals  = s.get("ts_decimals", 3)            != self._ts_decimals
 
-        self._palette_name       = s.get("palette",       "Default")
-        self._row_height_setting = s.get("row_height",    0.85)
-        self._font_size_setting  = s.get("font_size",     8)
-        self._ts_decimals        = s.get("ts_decimals",   3)
-        self._bookmark_snap      = s.get("bookmark_snap", False)
+        self._palette_name       = s.get("palette",         "Default")
+        self._row_height_setting = s.get("row_height",      0.85)
+        self._font_size_setting  = s.get("font_size",       8)
+        self._ts_decimals        = s.get("ts_decimals",     3)
+        self._bookmark_snap      = s.get("bookmark_snap",   False)
+        self._call_overhead_us   = s.get("call_overhead_us", 0.0)
 
         # Apply row height / font size live to the existing flame item
         if hasattr(self, "_flame_item") and self._flame_item is not None:
@@ -852,13 +863,27 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             self.window_spin.setDecimals(dec)
             self.jump_spin.setDecimals(dec)
 
+        # Call overhead: refresh stats tables and rebuild flame chart
+        self.summary_dock.set_overhead_us(self._call_overhead_us)
+        self.top_n_dock.set_overhead_us(self._call_overhead_us)
+        self._populate_plot()
+
         self._save_settings({
-            "palette":       self._palette_name,
-            "row_height":    self._row_height_setting,
-            "font_size":     self._font_size_setting,
-            "ts_decimals":   self._ts_decimals,
-            "bookmark_snap": self._bookmark_snap,
+            "palette":          self._palette_name,
+            "row_height":       self._row_height_setting,
+            "font_size":        self._font_size_setting,
+            "ts_decimals":      self._ts_decimals,
+            "bookmark_snap":    self._bookmark_snap,
+            "call_overhead_us": self._call_overhead_us,
         })
+
+    def _adj_dur(self, sp: dict) -> float:
+        """Overhead-adjusted duration (µs) for a span — never negative."""
+        return max(0.0, sp["duration_us"] - self._call_overhead_us)
+
+    def _adj_end_us(self, sp: dict) -> float:
+        """Overhead-adjusted absolute end time (µs) for a span."""
+        return sp["start_us"] + self._adj_dur(sp)
 
     def _snap_to_span_edge(self, t_us: float, depth: int) -> float:
         """Return t_us snapped to the nearest span start/end at *depth*."""
@@ -869,7 +894,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         for sp in self.spans:
             if sp.get("depth", 0) != depth:
                 continue
-            for edge in (sp["start_us"], sp["end_us"]):
+            for edge in (sp["start_us"], self._adj_end_us(sp)):
                 d = abs(edge - (t_us + self.t_min))
                 if d < best_d:
                     best_d = d
@@ -1264,6 +1289,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             pause_regions=self.pause_regions,
             row_height=self._row_height_setting,
             font_size=self._font_size_setting,
+            overhead_us=self._call_overhead_us,
         )
         self._flame_item.set_hidden(
             self.summary_dock.hidden_names() if hasattr(self, "summary_dock") else set()
@@ -1908,6 +1934,8 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self.cursor_handle_a.setVisible(checked)
         self.cursor_handle_b.setVisible(checked)
         self.measure_label.setVisible(checked)
+        self.marker_dock.set_cursors_enabled(checked)
+        self.summary_dock.set_cursors_enabled(checked)
         if checked:
             self._update_cursor_handle_pos()
             self._update_measure_label()
@@ -1944,6 +1972,26 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             self.measure_label.setText(
                 f"A: {a * s:.3f} {u}    B: {b * s:.3f} {u}    Delta: 0"
             )
+
+    def _snap_cursor_to_time(self, which: str, t_us: float) -> None:
+        """Snap cursor A or B to an absolute time, enabling cursors if needed."""
+        rel = t_us - self.t_min
+        if which == "A":
+            self.cursor_a.setValue(rel)
+        else:
+            self.cursor_b.setValue(rel)
+        if not self.cursors_enabled:
+            self.act_cursors.setChecked(True)
+            self._toggle_cursors(True)
+        self._update_measure_label()
+
+    def _snap_cursor_to_function(self, which: str, name: str) -> None:
+        """Snap cursor A or B to the first occurrence of a function's start."""
+        matches = [sp for sp in self.spans if sp["name"] == name]
+        if not matches:
+            return
+        first = min(matches, key=lambda s: s["start_us"])
+        self._snap_cursor_to_time(which, first["start_us"])
 
     # ── Pick-spans: click two bars, measure between them ───────────
 
@@ -2003,6 +2051,17 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             pt = vb.mapSceneToView(scene_pt)
             hit = self._find_span_at(depth, pt.x(), pt.y()) if hasattr(self, "_find_span_at") else None
 
+            # Hit-test markers — ±8 px of the vertical line (same approach as bookmarks).
+            mark_hit = None
+            if self.cursors_enabled and hasattr(self, "marks"):
+                best_dx = 9
+                for _mk in self.marks:
+                    _mk_sx = vb.mapViewToScene(QtCore.QPointF(_mk["t_us"] - self.t_min, 0)).x()
+                    _dx = abs(scene_pt.x() - _mk_sx)
+                    if _dx < best_dx:
+                        best_dx = _dx
+                        mark_hit = _mk
+
             # Hit-test bookmarks — work entirely in scene (pixel) space so the
             # label area (which is drawn in screen coords, extending rightward
             # from the line) is also detectable.
@@ -2036,6 +2095,16 @@ class ProfilerWindow(QtWidgets.QMainWindow):
                 menu.addAction(act_remove_bm)
                 menu.addSeparator()
 
+            if mark_hit is not None:
+                menu.addSection(f"\U0001f6a9 {mark_hit['name']}")
+                for which in ("A", "B"):
+                    act = QtGui.QAction(f"Set as Cursor {which}", menu)
+                    act.triggered.connect(
+                        lambda _=False, w=which, t=mark_hit["t_us"]: self._snap_cursor_to_time(w, t)
+                    )
+                    menu.addAction(act)
+                menu.addSeparator()
+
             if hit is not None:
                 fn_name = hit["name"]
                 menu.addSection(fn_name)
@@ -2057,6 +2126,17 @@ class ProfilerWindow(QtWidgets.QMainWindow):
                     lambda checked=False, n=fn_name: self._show_jitter_for_function(n)
                 )
                 menu.addAction(act_jitter)
+
+                if self.cursors_enabled:
+                    mid = (hit["start_us"] + hit["end_us"]) / 2
+                    snap_t = hit["start_us"] if (pt.x() + self.t_min) <= mid else hit["end_us"]
+                    menu.addSeparator()
+                    for which in ("A", "B"):
+                        act = QtGui.QAction(f"Set as Cursor {which}", menu)
+                        act.triggered.connect(
+                            lambda _=False, w=which, t=snap_t: self._snap_cursor_to_time(w, t)
+                        )
+                        menu.addAction(act)
 
                 menu.addSeparator()
 
@@ -2305,7 +2385,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         fill.setAlpha(110)
 
         x0 = sp["start_us"] - self.t_min
-        w = max(sp["duration_us"], 0.1)
+        w = max(self._adj_dur(sp), 0.1)
 
         rect = QtWidgets.QGraphicsRectItem(x0, sp["depth"], w, ROW_HEIGHT)
         rect.setBrush(QtGui.QBrush(fill))
@@ -2359,19 +2439,19 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         if self._picked_b is None:
             self.pick_label.setText(
                 f"<b>A:</b> {a['name']} "
-                f"[{(a['start_us']-self.t_min)*s:.3f} to {(a['end_us']-self.t_min)*s:.3f} {u}]"
+                f"[{(a['start_us']-self.t_min)*s:.3f} to {(self._adj_end_us(a)-self.t_min)*s:.3f} {u}]"
                 f" &nbsp;&nbsp; - &nbsp;&nbsp; now pick span B"
             )
             return
         b = self._picked_b
         a_start = (a["start_us"] - self.t_min) * s
-        a_end = (a["end_us"] - self.t_min) * s
+        a_end = (self._adj_end_us(a) - self.t_min) * s
         b_start = (b["start_us"] - self.t_min) * s
-        b_end = (b["end_us"] - self.t_min) * s
+        b_end = (self._adj_end_us(b) - self.t_min) * s
 
-        gap = (b["start_us"] - a["end_us"]) * s
+        gap = (b["start_us"] - self._adj_end_us(a)) * s
         start_to_start = (b["start_us"] - a["start_us"]) * s
-        full = (b["end_us"] - a["start_us"]) * s
+        full = (self._adj_end_us(b) - a["start_us"]) * s
 
         self.pick_label.setText(
             f"<b>A:</b> {a['name']} [{a_start:.3f} - {a_end:.3f} {u}]   "
@@ -2429,7 +2509,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             c["index"] = 0
 
         sp = matches[c["index"]]
-        center = (sp["start_us"] + sp["end_us"]) / 2 - self.t_min
+        center = (sp["start_us"] + self._adj_end_us(sp)) / 2 - self.t_min
         self.view_start = max(0, center - self.window_us / 2)
         self._update_view_range()
         self._flash_span_highlight(sp)
@@ -2472,14 +2552,14 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         """Center on a specific span instance (used by the Top-N dock)."""
         if not sp:
             return
-        center = (sp["start_us"] + sp["end_us"]) / 2 - self.t_min
+        center = (sp["start_us"] + self._adj_end_us(sp)) / 2 - self.t_min
         self.view_start = max(0, center - self.window_us / 2)
         self._update_view_range()
         self._flash_span_highlight(sp)
         u = self.unit_label
         s = self.unit_scale
         self.statusBar().showMessage(
-            f"{sp['name']}  duration={sp['duration_us'] * s:.3f} {u}  "
+            f"{sp['name']}  duration={self._adj_dur(sp) * s:.3f} {u}  "
             f"@ {(sp['start_us'] - self.t_min) * s:.3f} {u}",
             4000,
         )
@@ -2582,7 +2662,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             y = sp["depth"]
         else:
             y = -(sp["depth"] + 1)
-        self._flash_highlight_rect(x_rel, y, sp["duration_us"], ROW_HEIGHT)
+        self._flash_highlight_rect(x_rel, y, max(self._adj_dur(sp), 0.1), ROW_HEIGHT)
 
     def _flash_mark_highlight(self, mk):
         """Highlight a TRACE_MARK by lighting up its line, not a vertical band."""
@@ -2816,11 +2896,13 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             return
         ipsr = hit.get("ipsr", 0)
         ctx = f"  |  ISR {ipsr}" if ipsr else ""
+        adj_dur = self._adj_dur(hit)
+        adj_end = self._adj_end_us(hit)
         self.hover_label.setText(
             f"<b>{hit['name']}</b>  |  "
-            f"Duration: {hit['duration_us'] * s:.3f} {u}  |  "
+            f"Duration: {adj_dur * s:.3f} {u}  |  "
             f"Start: {(hit['start_us'] - self.t_min) * s:.3f} {u}  |  "
-            f"End: {(hit['end_us'] - self.t_min) * s:.3f} {u}  |  "
+            f"End: {(adj_end - self.t_min) * s:.3f} {u}  |  "
             f"Depth: {hit['depth']}  |  "
             f"Addr: 0x{hit['addr']:08X}"
             + ctx
@@ -2844,7 +2926,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
                     continue
                 if sp["name"] in hidden:
                     continue
-                if sp["start_us"] <= x_abs <= sp["end_us"]:
+                if sp["start_us"] <= x_abs <= self._adj_end_us(sp):
                     return sp
             return None
 
@@ -2857,7 +2939,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
                 if disp_y <= y <= disp_y + ROW_HEIGHT:
                     if sp["name"] in hidden:
                         continue
-                    if sp["start_us"] <= x_abs <= sp["end_us"]:
+                    if sp["start_us"] <= x_abs <= self._adj_end_us(sp):
                         return sp
         return None
 

@@ -37,6 +37,7 @@ class TopNSlowestDock(DockBase):
         self._top_spans = []   # raw us values for the current top-N list
         self._n = DEFAULT_N
         self._updating = False
+        self._call_overhead_us = 0.0  # subtracted from each span's duration in display
 
         container = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(container)
@@ -106,6 +107,11 @@ class TopNSlowestDock(DockBase):
             self._updating = False
             self._table.setSortingEnabled(True)
 
+    def set_overhead_us(self, overhead_us: float) -> None:
+        """Subtract a fixed per-call overhead from displayed durations and re-sort."""
+        self._call_overhead_us = float(overhead_us)
+        self._rebuild_table()
+
     # ── Internal ────────────────────────────────────────────────────
 
     def _on_n_changed(self, n):
@@ -113,8 +119,11 @@ class TopNSlowestDock(DockBase):
         self._rebuild_table()
 
     def _rebuild_table(self):
+        oh = self._call_overhead_us
         self._top_spans = sorted(
-            self._all_spans, key=lambda sp: sp["duration_us"], reverse=True
+            self._all_spans,
+            key=lambda sp: max(0.0, sp["duration_us"] - oh),
+            reverse=True,
         )[: self._n]
 
         self._updating = True
@@ -200,7 +209,7 @@ class TopNSlowestDock(DockBase):
             if idx is None or not (0 <= idx < len(self._top_spans)):
                 continue
             sp = self._top_spans[idx]
-            dur = sp["duration_us"] * s
+            dur = max(0.0, sp["duration_us"] - self._call_overhead_us) * s
             start = (sp["start_us"] - t_min) * s
             for col, raw in ((2, dur), (3, start)):
                 item = self._table.item(row, col)
