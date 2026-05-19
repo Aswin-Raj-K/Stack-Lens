@@ -3,6 +3,7 @@
 import json
 import os
 import pathlib
+import shutil
 import sys
 
 _RECENT_MAX = 8
@@ -1372,24 +1373,48 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         )
         if not path:
             return
+
+        elf_meta = self.elf_path or ""
+        elf_copied = False
+
+        if self.elf_path and os.path.isfile(self.elf_path):
+            reply = QtWidgets.QMessageBox.question(
+                self,
+                "Include ELF file?",
+                "Also copy the ELF file alongside this export?\n"
+                "This makes the export self-contained if the ELF changes later.",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.Yes,
+            )
+            if reply == QtWidgets.QMessageBox.Yes:
+                elf_dest = os.path.splitext(path)[0] + ".elf"
+                try:
+                    shutil.copy2(self.elf_path, elf_dest)
+                    elf_meta = os.path.basename(elf_dest)
+                    elf_copied = True
+                except Exception as e:
+                    QtWidgets.QMessageBox.warning(self, "ELF copy failed", str(e))
+
         try:
             export_json(
                 path,
                 self.spans,
                 meta={
                     "cpu_mhz": self.cpu_mhz,
-                    "elf_path": self.elf_path or "",
+                    "elf_path": elf_meta,
                     "total_us": self.total_us,
                 },
                 marks=self.marks,
                 pause_regions=self.pause_regions,
                 wrapped=self.wrapped,
             )
-            self.statusBar().showMessage(
+            msg = (
                 f"Exported {len(self.spans)} spans, {len(self.marks)} marks, "
-                f"{len(self.pause_regions)} pause regions to {path}",
-                4000,
+                f"{len(self.pause_regions)} pause regions to {path}"
             )
+            if elf_copied:
+                msg += f" (+ {os.path.basename(elf_dest)})"
+            self.statusBar().showMessage(msg, 4000)
         except Exception as e:
             QtWidgets.QMessageBox.warning(self, "Export failed", str(e))
 
@@ -1570,6 +1595,13 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         marks         = raw.get("marks", [])
         pause_regions = raw.get("pause_regions", [])
         meta          = raw.get("metadata", {})
+
+        meta_elf = meta.get("elf_path", "")
+        if meta_elf:
+            if not os.path.isabs(meta_elf):
+                meta_elf = os.path.join(os.path.dirname(path), meta_elf)
+            if os.path.isfile(meta_elf):
+                self.elf_path = meta_elf
 
         if not spans and not marks:
             self._toast.show_message(
