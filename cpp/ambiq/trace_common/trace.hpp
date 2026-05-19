@@ -1,5 +1,9 @@
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Profiler tracing API.
 //
 // trace_init() must be called once during startup before any instrumented
@@ -39,3 +43,7 @@ void trace_mark(const char *label);
 // is needed.
 void trace_pause();
 void trace_resume();
+
+#ifdef __cplusplus
+}
+#endif
