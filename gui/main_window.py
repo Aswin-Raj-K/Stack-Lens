@@ -153,6 +153,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         _reg(os.path.join(os.path.dirname(__file__), "icons", "icon.ico"))
 
     def closeEvent(self, event):
+        self._cleanup_temp_elf()
         self._save_session()
         if self._jlink is not None:
             try:
@@ -1675,6 +1676,19 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         )
         QtCore.QTimer.singleShot(5100, self._update_status_bar)
 
+    def _cleanup_temp_elf(self) -> None:
+        """Delete self.elf_path if it is a temp file extracted from a .sltrace bundle."""
+        import tempfile
+        if (
+            self.elf_path
+            and os.path.isfile(self.elf_path)
+            and self.elf_path.startswith(tempfile.gettempdir())
+        ):
+            try:
+                os.unlink(self.elf_path)
+            except OSError:
+                pass
+
     def _open_sltrace(self, path):
         """Load a .sltrace bundle (ZIP containing trace.json + ELF)."""
         import tempfile
@@ -1717,6 +1731,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             return
 
         if elf_bytes and elf_name:
+            self._cleanup_temp_elf()
             tmp = tempfile.NamedTemporaryFile(
                 suffix=os.path.splitext(elf_name)[1] or ".elf", delete=False
             )

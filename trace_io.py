@@ -78,6 +78,8 @@ def import_sltrace(path):
         meta = data.get("metadata", {})
         elf_name = meta.get("elf_path") or None
         elf_bytes = zf.read(elf_name) if elf_name and elf_name in zf.namelist() else None
+        if elf_bytes is None:
+            elf_name = None
     return (
         data.get("spans", []),
         data.get("marks", []),
