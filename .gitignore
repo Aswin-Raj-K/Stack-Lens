@@ -1,5 +1,7 @@
 .venv/
 .ruff_cache/
+docs/
 __pycache__/
 exports/
 .claude/
+.pytest_cache/
