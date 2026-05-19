@@ -48,3 +48,12 @@ def test_is_zip(tmp_path):
     assert zipfile.is_zipfile(out)
     with zipfile.ZipFile(out) as zf:
         assert "trace.json" in zf.namelist()
+
+
+def test_nonexistent_elf_path(tmp_path):
+    out = str(tmp_path / "trace.sltrace")
+    export_sltrace(out, SPANS, meta=META, elf_path="/nonexistent/path/fw.elf")
+    _, _, _, meta, elf_bytes, elf_name = import_sltrace(out)
+    assert elf_bytes is None
+    assert elf_name is None
+    assert meta.get("elf_path") == ""

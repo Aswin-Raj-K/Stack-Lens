@@ -45,6 +45,8 @@ def export_sltrace(path, spans, meta=None, marks=None, pause_regions=None,
                    wrapped=False, elf_path=None):
     """Write spans + optional ELF to a .sltrace ZIP bundle."""
     elf_name = os.path.basename(elf_path) if elf_path else None
+    if elf_name == "trace.json":
+        raise ValueError("ELF file cannot be named 'trace.json' — it conflicts with the bundle manifest")
     data = {
         "metadata": dict(meta or {}),
         "spans": spans,
@@ -56,10 +58,11 @@ def export_sltrace(path, spans, meta=None, marks=None, pause_regions=None,
     data["metadata"].setdefault("mark_count", len(marks or []))
     data["metadata"].setdefault("pause_region_count", len(pause_regions or []))
     data["metadata"]["wrapped"] = bool(wrapped)
-    data["metadata"]["elf_path"] = elf_name or ""
+    elf_written = bool(elf_path and os.path.isfile(elf_path) and elf_name)
+    data["metadata"]["elf_path"] = elf_name if elf_written else ""
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("trace.json", json.dumps(data, indent=2))
-        if elf_path and os.path.isfile(elf_path) and elf_name:
+        if elf_written:
             zf.write(elf_path, elf_name)
 
 
