@@ -2,6 +2,8 @@
 
 import csv
 import json
+import os
+import zipfile
 from datetime import datetime
 
 
@@ -37,6 +39,50 @@ def export_csv(path, spans):
                 sp["depth"],
                 sp.get("ipsr", 0),
             ])
+
+
+def export_sltrace(path, spans, meta=None, marks=None, pause_regions=None,
+                   wrapped=False, elf_path=None):
+    """Write spans + optional ELF to a .sltrace ZIP bundle."""
+    elf_name = os.path.basename(elf_path) if elf_path else None
+    data = {
+        "metadata": dict(meta or {}),
+        "spans": spans,
+        "marks": list(marks or []),
+        "pause_regions": list(pause_regions or []),
+    }
+    data["metadata"].setdefault("exported_at", datetime.now().isoformat(timespec="seconds"))
+    data["metadata"].setdefault("span_count", len(spans))
+    data["metadata"].setdefault("mark_count", len(marks or []))
+    data["metadata"].setdefault("pause_region_count", len(pause_regions or []))
+    data["metadata"]["wrapped"] = bool(wrapped)
+    data["metadata"]["elf_path"] = elf_name or ""
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("trace.json", json.dumps(data, indent=2))
+        if elf_path and os.path.isfile(elf_path) and elf_name:
+            zf.write(elf_path, elf_name)
+
+
+def import_sltrace(path):
+    """Load a .sltrace bundle.
+
+    Returns (spans, marks, pause_regions, meta, elf_bytes, elf_name).
+    elf_bytes and elf_name are None when the bundle contains no ELF.
+    """
+    with zipfile.ZipFile(path, "r") as zf:
+        with zf.open("trace.json") as f:
+            data = json.load(f)
+        meta = data.get("metadata", {})
+        elf_name = meta.get("elf_path") or None
+        elf_bytes = zf.read(elf_name) if elf_name and elf_name in zf.namelist() else None
+    return (
+        data.get("spans", []),
+        data.get("marks", []),
+        data.get("pause_regions", []),
+        meta,
+        elf_bytes,
+        elf_name,
+    )
 
 
 def import_json(path):
