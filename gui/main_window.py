@@ -1580,9 +1580,12 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         )
 
     def _open_trace_dialog(self):
-        """File → Open Trace... — load a JSON previously exported by this tool."""
+        """File → Open Trace... — load a JSON or .sltrace previously exported by this tool."""
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Open Trace", "", "Trace JSON (*.json);;All Files (*)"
+            self,
+            "Open Trace",
+            "",
+            "Trace Files (*.json *.sltrace);;JSON Files (*.json);;Stack-Lens Bundle (*.sltrace);;All Files (*)",
         )
         if not path:
             return
@@ -1590,6 +1593,10 @@ class ProfilerWindow(QtWidgets.QMainWindow):
 
     def _open_trace(self, path):
         """Load a JSON trace file and install it as the current data."""
+        if path.lower().endswith(".sltrace"):
+            self._open_sltrace(path)
+            return
+
         from trace_io import validate_trace
 
         # Parse JSON
@@ -1661,6 +1668,67 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self.statusBar().showMessage(
             f"Loaded {len(spans)} spans, {len(marks)} marks, "
             f"{len(pause_regions)} pause regions from {os.path.basename(path)}",
+            5000,
+        )
+        QtCore.QTimer.singleShot(5100, self._update_status_bar)
+
+    def _open_sltrace(self, path):
+        """Load a .sltrace bundle (ZIP containing trace.json + ELF)."""
+        import tempfile
+        from trace_io import import_sltrace, validate_trace
+
+        try:
+            spans, marks, pause_regions, meta, elf_bytes, elf_name = import_sltrace(path)
+        except Exception as e:
+            self._toast.show_message("Cannot open bundle", str(e), level="error")
+            return
+
+        raw = {
+            "spans": spans,
+            "marks": marks,
+            "pause_regions": pause_regions,
+            "metadata": meta,
+        }
+        issues = validate_trace(raw)
+        fatal    = [s for s in issues if not s.startswith("Warning:")]
+        warnings = [s for s in issues if s.startswith("Warning:")]
+
+        if fatal:
+            self._toast.show_message(
+                "Trace validation failed", "\n".join(fatal[:3]), level="error"
+            )
+            return
+        if warnings:
+            self._toast.show_message(
+                "Trace loaded with warnings",
+                "\n".join(w.removeprefix("Warning: ") for w in warnings[:2]),
+                level="warning",
+            )
+
+        if not spans and not marks:
+            self._toast.show_message(
+                "Empty trace",
+                f"{os.path.basename(path)} contains no spans or marks.",
+                level="info",
+            )
+            return
+
+        if elf_bytes and elf_name:
+            tmp = tempfile.NamedTemporaryFile(
+                suffix=os.path.splitext(elf_name)[1] or ".elf", delete=False
+            )
+            tmp.write(elf_bytes)
+            tmp.close()
+            self.elf_path = tmp.name
+
+        self._apply_new_data(
+            spans, list(marks), list(pause_regions),
+            bool(meta.get("wrapped", False)), preserve_view=False,
+        )
+        self._add_recent_trace(path)
+        self.statusBar().showMessage(
+            f"Loaded {len(spans)} spans, {len(marks)} marks "
+            f"from {os.path.basename(path)}",
             5000,
         )
         QtCore.QTimer.singleShot(5100, self._update_status_bar)
