@@ -11,7 +11,7 @@ _RECENT_MAX = 8
 import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from trace_io import export_csv, export_json
+from trace_io import export_csv, export_json, export_sltrace
 
 from .axes import DepthAxis, UnitAxis
 from .bookmark_dock import BookmarkDock
@@ -933,6 +933,10 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         act_export_json.triggered.connect(self._export_json)
         export_menu.addAction(act_export_json)
 
+        act_export_sltrace = QtGui.QAction("Export as .sltrace…", self)
+        act_export_sltrace.triggered.connect(self._export_sltrace)
+        export_menu.addAction(act_export_sltrace)
+
         act_export_csv = QtGui.QAction("Export as CSV...", self)
         act_export_csv.triggered.connect(self._export_csv)
         export_menu.addAction(act_export_csv)
@@ -1415,6 +1419,38 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             if elf_copied:
                 msg += f" (+ {os.path.basename(elf_dest)})"
             self.statusBar().showMessage(msg, 4000)
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, "Export failed", str(e))
+
+    def _export_sltrace(self):
+        if not self.elf_path or not os.path.isfile(self.elf_path):
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No ELF loaded",
+                "A loaded ELF file is required to export a .sltrace bundle.\n"
+                "Connect to J-Link first, or use Export as JSON instead.",
+            )
+            return
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Export as .sltrace bundle", "", "Stack-Lens Trace (*.sltrace)"
+        )
+        if not path:
+            return
+        try:
+            export_sltrace(
+                path,
+                self.spans,
+                meta={"cpu_mhz": self.cpu_mhz, "total_us": self.total_us},
+                marks=self.marks,
+                pause_regions=self.pause_regions,
+                wrapped=self.wrapped,
+                elf_path=self.elf_path,
+            )
+            self.statusBar().showMessage(
+                f"Exported {len(self.spans)} spans, {len(self.marks)} marks "
+                f"+ ELF to {os.path.basename(path)}",
+                4000,
+            )
         except Exception as e:
             QtWidgets.QMessageBox.warning(self, "Export failed", str(e))
 
