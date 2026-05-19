@@ -149,6 +149,9 @@ class ProfilerWindow(QtWidgets.QMainWindow):
             self._on_theme_changed(saved_theme)
         self._restore_session()
 
+        from .file_association import register_sltrace_association as _reg
+        _reg(os.path.join(os.path.dirname(__file__), "icons", "icon.ico"))
+
     def closeEvent(self, event):
         self._save_session()
         if self._jlink is not None:
