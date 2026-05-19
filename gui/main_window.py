@@ -1057,6 +1057,12 @@ class ProfilerWindow(QtWidgets.QMainWindow):
         self.act_select_zoom.triggered.connect(self._toggle_select_zoom)
         view_menu.addAction(self.act_select_zoom)
 
+        self.act_fit_all = QtGui.QAction("Fit to Waveform", self)
+        self.act_fit_all.setShortcut("Ctrl+Shift+F")
+        self.act_fit_all.setToolTip("Zoom out to show the entire trace")
+        self.act_fit_all.triggered.connect(self._fit_all)
+        view_menu.addAction(self.act_fit_all)
+
         view_menu.addSeparator()
 
         act_reset = QtGui.QAction("Reset View", self)
@@ -1261,6 +1267,7 @@ class ProfilerWindow(QtWidgets.QMainWindow):
 
         # Zoom to Selection (shares QAction with View menu)
         tb.addAction(self.act_select_zoom)
+        tb.addAction(self.act_fit_all)
 
         tb.addSeparator()
 
@@ -2961,6 +2968,16 @@ class ProfilerWindow(QtWidgets.QMainWindow):
 
     def _reset_view(self):
         self.window_us = min(DEFAULT_WINDOW_US, self.total_us) if self.total_us > 0 else 1.0
+        self.window_spin.blockSignals(True)
+        self.window_spin.setValue(self.window_us * self.unit_scale)
+        self.window_spin.blockSignals(False)
+        self.view_start = 0.0
+        self._update_view_range()
+
+    def _fit_all(self):
+        if self.total_us <= 0:
+            return
+        self.window_us = self.total_us
         self.window_spin.blockSignals(True)
         self.window_spin.setValue(self.window_us * self.unit_scale)
         self.window_spin.blockSignals(False)
